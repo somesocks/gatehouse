@@ -2,6 +2,7 @@ import { fetchGatehouse as fetch } from "./api"
 import { collectionQueryPath, type CollectionQuery } from "./collection-query"
 import {
   decodeTranscriptEvent,
+  type ConversationBranch,
   decodeTranscriptMessageTarget,
   type TranscriptEvent,
   type TranscriptFile,
@@ -10,6 +11,8 @@ import {
 } from "../api-model"
 
 export type ChatFile = TranscriptFile
+export type ChatBranch = ConversationBranch
+export { decodeConversationBranch as decodeChatBranch } from "../api-model"
 export type ChatEvent = TranscriptEvent
 export type MessageTarget = TranscriptMessageTarget
 export type MessageTargetRef = TranscriptMessageTargetRef
@@ -135,6 +138,22 @@ export async function fetchChatEvents(
   )
 }
 
+export async function fetchChatBranch(
+  workspaceID: string,
+  sessionID: string,
+  parentID: string,
+  cursor: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const query = new URLSearchParams({ limit: "20" })
+  if (parentID) query.set("parent", parentID)
+  if (cursor) query.set("cursor", cursor)
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/events/branch?${query}`, {
+    credentials: "same-origin",
+    ...(signal === undefined ? {} : { signal }),
+  })
+}
+
 export async function fetchChatFiles(
   workspaceID: string,
   sessionID: string,
@@ -155,7 +174,7 @@ export async function fetchChatFiles(
 export async function sendChatMessage(
   workspaceID: string,
   sessionID: string,
-  input: { text?: string; targets?: MessageTargetRef[]; agents?: string[]; attachments?: string[] },
+  input: { parent?: string; text?: string; targets?: MessageTargetRef[]; agents?: string[]; attachments?: string[] },
   signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages`, {

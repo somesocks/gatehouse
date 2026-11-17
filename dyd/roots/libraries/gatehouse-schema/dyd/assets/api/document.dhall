@@ -292,7 +292,7 @@ let ConversationBranch =
             , agent_requests = s.list.from s.list.props::{ values = s.reference.from s.reference.props::{ to = "ConversationAgentRequest" } s.reference.meta::{=} } s.list.meta::{=}
             , interactions = s.list.from s.list.props::{ values = s.reference.from s.reference.props::{ to = "ConversationInteraction" } s.reference.meta::{=} } s.list.meta::{=}
             }
-        , optional = toMap { parent = eventRefReference, next_cursor = text }
+        , optional = toMap { parent = eventReference, next_cursor = text }
         }
         s.record.meta::{ name = Some "ConversationBranch" }
 

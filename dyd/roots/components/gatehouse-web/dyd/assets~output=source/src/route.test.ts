@@ -9,6 +9,12 @@ function url(path: string): URL {
 }
 
 describe("routes", () => {
+  it("round-trips branch parents and treats an empty parent as the root", () => {
+    const route = { kind: "session-chat", workspaceID: "workspace", sessionID: "session", parentID: "sev_answer" } as const
+    expect(routePath(route)).toBe("/app/wsp/workspace/ses/session?parent=sev_answer")
+    expect(parseRoute(url(routePath(route)))).toEqual(route)
+    expect(parseRoute(url("/app/wsp/workspace/ses/session?parent="))).toEqual({ kind: "session-chat", workspaceID: "workspace", sessionID: "session" })
+  })
   it("round-trips separate global edit and access workflows", () => {
     const routes: NavigableRoute[] = [
       { kind: "system-agent-provider-edit", providerID: "apr_test" },

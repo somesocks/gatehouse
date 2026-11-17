@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -75,9 +76,10 @@ func TestConversationBranchAPI(t *testing.T) {
 	add("human", "a", "message.text", false, map[string]any{"text": "Human reply"}, 3)
 	add("hidden", "a", "agent.request", false, map[string]any{"agent": bot}, 3)
 	add("hidden-answer", "hidden", "agent.success", true, map[string]any{"text": "HIDDEN_ANSWER"}, 20)
-	add("at", "ar", "tool.request", true, map[string]any{"name": "lisp", "code": "EXECUTION_SECRET"}, 5)
+	add("at", "ar", "tool.request", true, map[string]any{"name": "lisp", "reason": "Review form", "code": "EXECUTION_SECRET"}, 5)
 	add("ai", "at", "input.request", true, map[string]any{"description": "Review", "form": map[string]any{"private": "FORM_SECRET"}}, 6)
 	add("ais", "ai", "input.success", false, map[string]any{"result": map[string]any{"private": "RESULT_SECRET"}}, 7)
+	add("ats", "at", "tool.success", true, map[string]any{"output_file": upload.File.Ref}, 8)
 	add("answer", "ar", "agent.success", true, map[string]any{"text": "Done", "reasoning": "REASONING_SECRET", "attachments": []string{upload.File.Ref.Id}}, 20)
 	add("b", "", "message.text", false, map[string]any{"text": "Second root"}, 1)
 	add("br", "b", "agent.request", false, map[string]any{"agent": bot}, 3)
@@ -138,13 +140,34 @@ func TestConversationBranchAPI(t *testing.T) {
 	if second["next_cursor"] != nil || second["agent_requests"].([]any)[0].(map[string]any)["state"] != "waiting" || len(second["interactions"].([]any)) != 2 {
 		t.Fatalf("second page = %#v", second)
 	}
+	thread := get(base + "/events/branch?parent=" + refs["a"].Id + "&limit=1")
+	if !reflect.DeepEqual(thread["parent"], event) || len(thread["entries"].([]any)) != 1 || thread["next_cursor"] == nil {
+		t.Fatalf("thread parent or pagination = %#v", thread)
+	}
+	continued := get(base + "/events/branch?parent=" + refs["a"].Id + "&limit=1&cursor=" + url.QueryEscape(thread["next_cursor"].(string)))
+	if !reflect.DeepEqual(continued["parent"], event) {
+		t.Fatalf("continuation lost parent: %#v", continued)
+	}
 	direct := get(base + "/events/branch?parent=" + refs["at"].Id)
-	if direct["parent"].(map[string]any)["id"] != refs["at"].Id || len(direct["interactions"].([]any)) != 1 || len(direct["agent_requests"].([]any)) != 0 {
+	if direct["parent"].(map[string]any)["ref"].(map[string]any)["id"] != refs["at"].Id || len(direct["interactions"].([]any)) != 1 || len(direct["agent_requests"].([]any)) != 0 {
 		t.Fatalf("direct form = %#v", direct)
 	}
 	empty := get(base + "/events/branch?parent=" + refs["answer"].Id)
-	if len(empty["entries"].([]any)) != 0 || len(empty["interactions"].([]any)) != 0 {
-		t.Fatalf("empty branch = %#v", empty)
+	if len(empty["entries"].([]any)) != 0 || len(empty["interactions"].([]any)) != 0 || !reflect.DeepEqual(empty["parent"], outcome) {
+		t.Fatalf("empty branch or agent-answer parent = %#v", empty)
+	}
+	tool := get(base + "/events/branch?parent=" + refs["ats"].Id)
+	file := tool["parent"].(map[string]any)["payload"].(map[string]any)["output_file"].(map[string]any)
+	if file["id"] != upload.File.Ref.Id || file["name"] != "note.txt" || file["size"] != json.Number("5") {
+		t.Fatalf("parent output file = %#v", file)
+	}
+	for _, name := range []string{"ai", "bi", "ais"} {
+		private := get(base + "/events/branch?parent=" + refs[name].Id)
+		parent := private["parent"].(map[string]any)
+		payload := parent["payload"].(map[string]any)
+		if parent["ref"].(map[string]any)["id"] != refs[name].Id || payload["form"] != nil || payload["result"] != nil {
+			t.Fatalf("private parent projection = %#v", parent)
+		}
 	}
 	for _, query := range []string{"limit=0", "limit=101", "limit=x", "parent=bad", "cursor=bad", "parent=" + refs["a"].Id + "&cursor=" + url.QueryEscape(cursor)} {
 		call(http.MethodGet, base+"/events/branch?"+query, "", http.StatusBadRequest)
@@ -169,4 +192,5 @@ func TestConversationBranchAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	call(http.MethodGet, base+"/events/branch?cursor="+url.QueryEscape(cursor), "", http.StatusNotFound)
+	call(http.MethodGet, base+"/events/branch?parent="+refs["a"].Id, "", http.StatusNotFound)
 }

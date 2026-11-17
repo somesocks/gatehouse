@@ -9,6 +9,9 @@ const conversation = {
 const base = "/app/wsp/workspace%2Fone/ses/chat%2Fone"
 
 describe("chat-resource dismissal", () => {
+  it("returns to the saved reply branch when dismissing a resource collection", () => {
+    expect(sessionToolDismissPath({ ...conversation, kind: "session-files" }, { ...conversation, parentID: "sev_answer" })).toBe(`${base}?parent=sev_answer`)
+  })
   it.each([
     { route: { ...conversation, kind: "session-note-new" }, parent: "notes" },
     { route: { ...conversation, kind: "session-task-new" }, parent: "tasks" },

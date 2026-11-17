@@ -7,6 +7,8 @@ import {
   fetchChatRecipients,
   fetchChatFiles,
   fetchChatEvents,
+  fetchChatBranch,
+  decodeChatBranch,
   fetchChatSession,
   fetchChatInputLaunch,
   finishChatFileUpload,
@@ -82,6 +84,51 @@ describe("chat event response decoding", () => {
 })
 
 describe("chat transport", () => {
+  it("sends an optional reply parent without changing recipients or attachments", async () => {
+    const request = vi.fn(async (_path: string, _init?: RequestInit) =>
+      Response.json({}),
+    )
+    vi.stubGlobal("fetch", request)
+    const signal = new AbortController().signal
+    const input = {
+      parent: "sev_answer",
+      text: "Follow up",
+      targets: [{ kind: "principal", id: "alex" }] as const,
+      attachments: ["own-file"],
+    }
+    await sendChatMessage(
+      "workspace",
+      "session",
+      { ...input, targets: [...input.targets] },
+      signal,
+    )
+    expect(request).toHaveBeenLastCalledWith(
+      "/api/v1/workspaces/workspace/sessions/session/messages",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal,
+      },
+    )
+    await sendChatMessage("workspace", "session", { text: "Root", targets: [] })
+    expect(JSON.parse(String(request.mock.calls.at(-1)![1]?.body))).toEqual({
+      text: "Root",
+      targets: [],
+    })
+  })
+  it("loads a bounded branch using encoded selectors and the generated public contract", async () => {
+    const fetch = vi.fn(async () => Response.json({ entries: [], agent_requests: [], interactions: [] }))
+    vi.stubGlobal("fetch", fetch)
+    const signal = new AbortController().signal
+    const response = await fetchChatBranch("workspace/one", "session/one", "answer/one", "opaque +&", signal)
+    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces/workspace%2Fone/sessions/session%2Fone/events/branch?limit=20&parent=answer%2Fone&cursor=opaque+%2B%26", { credentials: "same-origin", signal })
+    expect(decodeChatBranch(await response.json())).toEqual({ entries: [], agent_requests: [], interactions: [] })
+    expect(() => decodeChatBranch({ entries: [], agent_requests: [], interactions: null })).toThrow()
+    await fetchChatBranch("workspace", "session", "", "", signal)
+    expect(fetch).toHaveBeenLastCalledWith("/api/v1/workspaces/workspace/sessions/session/events/branch?limit=20", { credentials: "same-origin", signal })
+  })
   it("loads all recipient pages with encoded paths and rejects repeated cursors", async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(Response.json({ targets: [{ ref: { kind: "principal", id: "prn_one" }, name: "One" }], next_cursor: "prn_cursor" }))

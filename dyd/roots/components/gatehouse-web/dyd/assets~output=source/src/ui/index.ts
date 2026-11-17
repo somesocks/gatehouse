@@ -52,6 +52,9 @@ export { default as Modal } from "./Modal.svelte"
 export { default as RichText } from "./RichText.svelte"
 export { default as Feed } from "./Feed.svelte"
 export { default as Message } from "./Message.svelte"
+export { default as MessageActions } from "./MessageActions.svelte"
+export { default as Avatar } from "./Avatar.svelte"
+export { default as MessageReplies } from "./MessageReplies.svelte"
 export { default as StatusPage } from "./StatusPage.svelte"
 export { default as DialogTitle } from "./DialogTitle.svelte"
 export { default as Navigation } from "./Navigation.svelte"
@@ -95,6 +98,7 @@ export type { WorkspaceTheme, ThemeValues } from "./theme.svelte"
 export { renderMarkdown } from "./markdown"
 export {
   ArrowDown,
+  ArrowLeft,
   AtSign,
   Bot,
   Check,

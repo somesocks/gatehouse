@@ -3,19 +3,21 @@ import { createLoadState } from "../../utils/load-state.svelte"
 import {
   cancelChatReply,
   decodeChatEvent,
-  decodeChatEventTrees,
-  fetchChatEvents,
+  decodeChatBranch,
+  fetchChatBranch,
   finishChatFileUpload,
   respondToChatApproval,
   sendChatMessage,
   startChatFileUpload,
   uploadChatFile,
+  type ChatBranch,
   type ChatComposerFile,
   type ChatEvent,
   type ChatEventTree,
   type MessageTargetRef,
 } from "../../app/chat"
 import { uniqueTargets } from "./message-targets"
+import { branchEventIDs, emptyBranch, mergeBranchPages } from "./conversation"
 
 type ChatControllerOptions = {
   isNearBottom: () => boolean
@@ -31,7 +33,15 @@ export function createChatController({
   const eventsLoad = createLoadState()
   let lifetime = new AbortController()
   const state = $state({
-    events: [] as ChatEventTree[],
+    branch: emptyBranch(),
+    parentID: "",
+    pagesLoaded: 0,
+    sentMessageID: "",
+    get canCompose(): boolean {
+      return (
+        state.parentID === "" || state.branch.parent?.ref.id === state.parentID
+      )
+    },
     get status() {
       return eventsLoad.status
     },
@@ -45,13 +55,10 @@ export function createChatController({
     composerFiles: [] as ChatComposerFile[],
     messageError: "",
     sendingMessage: false,
-    awaitingReplyFor: [] as string[],
     cancellingReplyFor: new Set<string>(),
     submittingApprovals: new Set<string>(),
     approvalErrors: new Map<string, string>(),
-    expandedActivity: new Set<string>(),
     showJumpToLatest: false,
-    activityTimestamp: Date.now(),
     authenticationRequired: false,
   })
   let context: {
@@ -61,6 +68,7 @@ export function createChatController({
   } | null = null
   let generation = 0
   let followingLatest = false
+  let desiredPages = 1
   const current = (value: number) =>
     value === generation && context !== null && !context.signal.aborted
   const validContext = (
@@ -76,6 +84,7 @@ export function createChatController({
     value: number,
     showLoading = false,
     parent?: AbortSignal,
+    preserveScroll = false,
   ): Promise<boolean> {
     if (context === null) return false
     const { workspaceID, sessionID, signal } = context
@@ -83,55 +92,77 @@ export function createChatController({
       parent ? AbortSignal.any([signal, parent]) : signal,
     )
     try {
-      const response = await fetchChatEvents(
-        workspaceID,
-        sessionID,
-        request.signal,
-      )
-      if (!validContext(value, workspaceID, sessionID) || !request.current())
-        return false
-      if (response.status === 401) {
-        state.authenticationRequired = true
-        return false
+      const parentID = state.parentID
+      const count = desiredPages
+      const pages: ChatBranch[] = []
+      const cursors = new Set<string>()
+      let cursor = ""
+      for (let index = 0; index < count; index += 1) {
+        const response = await fetchChatBranch(
+          workspaceID,
+          sessionID,
+          parentID,
+          cursor,
+          request.signal,
+        )
+        if (!validContext(value, workspaceID, sessionID) || !request.current())
+          return false
+        if (response.status === 401) {
+          state.authenticationRequired = true
+          return false
+        }
+        if (response.status === 404)
+          throw new Error(
+            "This branch is unavailable or you no longer have access.",
+          )
+        if (!response.ok)
+          throw new Error("Conversation could not be refreshed.")
+        const page = decodeChatBranch(await response.json())
+        if (!validContext(value, workspaceID, sessionID) || !request.current())
+          return false
+        const parentRef = page.parent?.ref
+        if (
+          (parentRef?.id ?? "") !== parentID ||
+          (parentRef &&
+            (parentRef.session.id !== sessionID ||
+              parentRef.session.workspace.id !== workspaceID))
+        )
+          throw new Error("Invalid conversation branch.")
+        pages.push(page)
+        cursor = page.next_cursor ?? ""
+        if (!cursor) break
+        if (cursors.has(cursor)) throw new Error("Invalid conversation cursor.")
+        cursors.add(cursor)
       }
-      if (!response.ok) throw new Error("session events could not be loaded")
-      const loaded = decodeChatEventTrees(await response.json())
-      if (!validContext(value, workspaceID, sessionID) || !request.current())
-        return false
-      const knownEvents = new Set(state.events.flatMap(eventTreeIDs))
-      const hasNewEvents = loaded.some((tree) =>
-        eventTreeIDs(tree).some((id) => !knownEvents.has(id)),
+      const loaded = mergeBranchPages(pages)
+      const knownEvents = new Set(branchEventIDs(state.branch))
+      const hasNewEvents = branchEventIDs(loaded).some(
+        (id) => !knownEvents.has(id),
       )
       const shouldFollow = showLoading || isNearBottom()
       request.commit(() => {
-        state.events = loaded
+        state.branch = loaded
+        state.pagesLoaded = pages.length
+        desiredPages = pages.length
+        if (
+          loaded.entries.some(
+            (entry) => entry.event.ref.id === state.sentMessageID,
+          )
+        )
+          state.sentMessageID = ""
       })
-      if (showLoading || hasNewEvents) {
+      if (!preserveScroll && (showLoading || hasNewEvents)) {
         if (shouldFollow) void followLatest(showLoading ? "instant" : "smooth")
         else state.showJumpToLatest = true
       }
-      const finishedReplies = new Set(
-        loaded
-          .filter(
-            (tree) =>
-              finalReplies(tree).length > 0 ||
-              agentFailures(tree).length > 0 ||
-              hasThinkingFailure(tree) ||
-              hasCancellationSuccess(tree) ||
-              hasCancellationFailure(tree),
-          )
-          .map((tree) => tree.event.ref.id),
-      )
-      if (
-        state.awaitingReplyFor.some((eventID) => finishedReplies.has(eventID))
-      )
-        state.awaitingReplyFor = state.awaitingReplyFor.filter(
-          (eventID) => !finishedReplies.has(eventID),
-        )
       return true
-    } catch {
+    } catch (error) {
       if (validContext(value, workspaceID, sessionID))
-        request.fail("Conversation could not be refreshed.")
+        request.fail(
+          error instanceof Error
+            ? error
+            : "Conversation could not be refreshed.",
+        )
       return false
     } finally {
       request.finish()
@@ -142,6 +173,7 @@ export function createChatController({
     workspaceID: string,
     sessionID: string,
     signal: AbortSignal,
+    parentID = "",
   ): void {
     stop()
     lifetime = new AbortController()
@@ -152,18 +184,19 @@ export function createChatController({
     }
     eventsLoad.reset()
     const value = ++generation
-    state.events = []
+    state.branch = emptyBranch()
+    state.parentID = parentID
+    state.pagesLoaded = 0
+    desiredPages = 1
+    state.sentMessageID = ""
     state.messageText = ""
     state.composerFiles = []
     state.messageError = ""
     state.sendingMessage = false
-    state.awaitingReplyFor = []
     state.cancellingReplyFor = new Set()
     state.submittingApprovals = new Set()
     state.approvalErrors = new Map()
-    state.expandedActivity = new Set()
     state.showJumpToLatest = false
-    state.activityTimestamp = Date.now()
     state.authenticationRequired = false
     followingLatest = false
     void refreshEvents(value, true)
@@ -174,18 +207,41 @@ export function createChatController({
     eventsLoad.stop()
     generation += 1
     context = null
-    state.events = []
+    state.branch = emptyBranch()
+    state.parentID = ""
+    state.pagesLoaded = 0
+    desiredPages = 1
+    state.sentMessageID = ""
     state.messageText = ""
     state.composerFiles = []
     state.messageError = ""
     state.sendingMessage = false
-    state.awaitingReplyFor = []
     state.cancellingReplyFor = new Set()
     state.submittingApprovals = new Set()
     state.approvalErrors = new Map()
-    state.expandedActivity = new Set()
     state.showJumpToLatest = false
     followingLatest = false
+  }
+
+  function selectBranch(parentID = ""): void {
+    if (context === null || state.parentID === parentID) return
+    // Branch selection invalidates reads, not session-scoped sends or drafts.
+    eventsLoad.reset()
+    state.parentID = parentID
+    if (state.sentMessageID === parentID) state.sentMessageID = ""
+    state.branch = emptyBranch()
+    state.pagesLoaded = 0
+    desiredPages = 1
+    state.showJumpToLatest = false
+    followingLatest = false
+    void refreshEvents(generation, true)
+  }
+
+  async function loadMore(): Promise<boolean> {
+    if (context === null || state.reloading || !state.branch.next_cursor)
+      return false
+    desiredPages = state.pagesLoaded + 1
+    return await refreshEvents(generation, false, undefined, true)
   }
 
   async function sendMessage(
@@ -194,11 +250,13 @@ export function createChatController({
     if (
       context === null ||
       state.sendingMessage ||
+      !state.canCompose ||
       (state.messageText.trim() === "" && state.composerFiles.length === 0)
     )
       return
     const { workspaceID, sessionID, signal } = context
     const value = generation
+    const parentID = state.parentID
     const text = state.messageText
     const files = [...state.composerFiles]
     const targets = uniqueTargets(recipients)
@@ -220,6 +278,7 @@ export function createChatController({
         workspaceID,
         sessionID,
         {
+          ...(parentID ? { parent: parentID } : {}),
           ...(text.trim() === "" ? {} : { text }),
           targets,
           ...(attachments.length === 0 ? {} : { attachments }),
@@ -234,7 +293,9 @@ export function createChatController({
       if (response.status === 400 || response.status === 403) {
         const error = (await response.text()).trim()
         if (validContext(value, workspaceID, sessionID))
-          state.messageError = error || "The selected recipients are unavailable. Choose another recipient."
+          state.messageError =
+            error ||
+            "The selected recipients are unavailable. Choose another recipient."
         return
       }
       if (!response.ok) throw new Error("message could not be sent")
@@ -248,10 +309,10 @@ export function createChatController({
       )
       await tick()
       if (!validContext(value, workspaceID, sessionID)) return
-      state.events = [...state.events, { event, children: [] }]
-      void followLatest()
-      if (targets.some((target) => target.kind === "agent"))
-        state.awaitingReplyFor = [...state.awaitingReplyFor, event.ref.id]
+      state.sentMessageID = event.ref.id
+      // Navigation may have changed branches during upload/send. Refresh the
+      // current branch's opened pages instead of appending into it or after a gap.
+      await refreshEvents(value)
     } catch {
       if (current(value))
         state.messageError =
@@ -444,13 +505,6 @@ export function createChatController({
       (entry) => entry.file !== file,
     )
   }
-  function toggleActivity(tree: ChatEventTree): void {
-    const expanded = new Set(state.expandedActivity)
-    expanded.has(tree.event.ref.id)
-      ? expanded.delete(tree.event.ref.id)
-      : expanded.add(tree.event.ref.id)
-    state.expandedActivity = expanded
-  }
   function trackScroll(): void {
     if (followingLatest) {
       if (isNearBottom()) followingLatest = false
@@ -465,14 +519,13 @@ export function createChatController({
     await followLatest()
     if (current(value) && isNearBottom()) followingLatest = false
   }
-  function updateActivityTimestamp(): void {
-    state.activityTimestamp = Date.now()
-  }
 
   return {
     state,
     start,
     stop,
+    selectBranch,
+    loadMore,
     refreshEvents: (signal?: AbortSignal) =>
       refreshEvents(generation, false, signal),
     sendMessage,
@@ -480,10 +533,8 @@ export function createChatController({
     respondToApproval,
     selectComposerFiles,
     removeComposerFile,
-    toggleActivity,
     trackScroll,
     jumpToLatest,
-    updateActivityTimestamp,
   }
 }
 

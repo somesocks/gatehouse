@@ -61,7 +61,11 @@ func workspaceSessionConversation(store *database.Store, tokens *auth.BearerToke
 		}
 		wire, err := conversationBranchWire(request, store, session, input.Parent, branch)
 		if err != nil {
-			http.Error(response, "internal server error", http.StatusInternalServerError)
+			if errors.Is(err, database.ErrConversationParent) {
+				http.NotFound(response, request)
+			} else {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 		writeJSON(response, wire)
@@ -78,6 +82,16 @@ func conversationBranchWire(request *http.Request, store *database.Store, sessio
 			seen[event.Ref.Id] = true
 			entries = append(entries, database.SessionEventTreeEntry{Event: event})
 		}
+	}
+	if parent != "" {
+		err, event := store.SessionEventGet(request.Context(), model.SessionEventRef{Session: session, Id: parent})
+		if err != nil {
+			return nil, err
+		}
+		if event == nil {
+			return nil, database.ErrConversationParent
+		}
+		add(*event)
 	}
 	for _, entry := range branch.Entries {
 		add(entry.Event)
@@ -102,6 +116,10 @@ func conversationBranchWire(request *http.Request, store *database.Store, sessio
 		events[i] = entry.Event
 	}
 	err, events := store.SessionEventAttachmentsHydrate(request.Context(), session, events)
+	if err != nil {
+		return nil, err
+	}
+	err, events = store.SessionEventOutputFilesHydrate(request.Context(), events)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +165,7 @@ func conversationBranchWire(request *http.Request, store *database.Store, sessio
 	}
 	value := map[string]any{"entries": resultEntries, "agent_requests": resultAgents, "interactions": resultInteractions}
 	if parent != "" {
-		value["parent"] = conversationEventRefWire(model.SessionEventRef{Session: session, Id: parent})
+		value["parent"] = encoded[parent]
 	}
 	if branch.NextCursor != "" {
 		value["next_cursor"] = branch.NextCursor

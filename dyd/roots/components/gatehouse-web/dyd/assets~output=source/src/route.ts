@@ -68,7 +68,7 @@ export type Route =
       dialog?: "details" | "members" | "bots" | "secret-create" | "secret-edit"
       secretID?: string
     } & WorkspaceRoute)
-  | ({ kind: "session-chat" } & SessionRoute)
+  | ({ kind: "session-chat"; parentID?: string } & SessionRoute)
   | ({ kind: "session-files" } & SessionRoute)
   | ({ kind: "session-notes" } & SessionRoute)
   | ({ kind: "session-note-new" } & SessionRoute)
@@ -506,6 +506,7 @@ export function parseRoute(url: URL): Route {
         kind: "session-chat",
         workspaceID,
         sessionID: resourceID,
+        ...(url.searchParams.get("parent") ? { parentID: url.searchParams.get("parent")! } : {}),
       }
     }
     const section = segments[5]
@@ -941,7 +942,7 @@ export function routePath(route: NavigableRoute): string {
     case "group":
       return `/app/wsp/${segment(route.workspaceID)}/grp/${segment(route.groupID)}${route.dialog ? `?${new URLSearchParams({ view: route.dialog, ...(route.dialog === "secret-edit" && route.secretID ? { secret: route.secretID } : {}) })}` : ""}`
     case "session-chat":
-      return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}`
+      return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}${route.parentID ? `?${new URLSearchParams({ parent: route.parentID })}` : ""}`
     case "session-files":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/files`
     case "session-notes":

@@ -53,11 +53,24 @@ successful writes. Field removal is validated against the descriptor as well.
 ## Chat and resource navigation
 
 Chat refreshes preserve composer state and keep agent branches, input cards, and
-scrolling behavior independent of metadata reloads.
+scrolling behavior independent of metadata reloads. Branch changes abort/invalidate
+branch reads while retaining the session-scoped composer draft, files, recipients,
+and in-flight mutations. Root and reply sends capture their destination parent
+before uploads begin. A send completing after navigation cannot retarget itself
+or insert its message into a different branch. Successful sends clear only the
+submitted text/files, retaining newly typed text and newly chosen files.
+Session/principal changes still invalidate the entire conversation.
+
+A refresh rereads the pages already opened and publishes their merged snapshot
+only after all reads succeed. A failed continuation or refresh retains the last
+complete snapshot; stale decodes cannot publish data, errors, or authentication
+changes. Branch selection is URL-backed, but loaded-page depth is local and resets
+to the first page on branch navigation or reload. Each page is a current read,
+not a durable snapshot spanning subsequent pages.
 
 `SessionWorkspace` keeps one conversation mounted per session while resource
 routes change inside resource-owned dialogs. The conversation retains its draft, selected
-attachments, scroll position, delivery mode, and activity subscription. A new
+attachments, scroll position, selected recipients, branch selection, and activity subscription. A new
 session or principal establishes a new conversation.
 
 The resource presentation owner retains its last displayed route while the

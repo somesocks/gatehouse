@@ -272,7 +272,7 @@ The conversation, message feed, activity, composer, attachments, and chat tools.
 ### Layout
 
 The shell is bounded to the viewport, with scrolling contained to its message
-feed so the header and composer remain stationary. Jump to latest is an
+feed so the header and composer remain stationary. Jump to bottom is an
 arrow-down icon button anchored at the bottom right of the feed viewport, just
 above the input section, outside the scrolling message content.
 
@@ -288,8 +288,19 @@ send button at the right shows upload/submission progress. Selected-file cards
 show truncated filenames, readable sizes, upload/error states, and separate remove
 actions in a height-bounded scrolling area.
 
-User and agent message bubbles share a 28rem minimum and 42rem maximum width,
-both clamped to the available width on narrow screens.
+All conversational messages are left-aligned, unboxed rows that use the available
+chat width. There is no user/agent left-right split, bubble background, enclosing
+border, or fixed message-width cap. A small avatar occupies the left gutter; the
+name and local timestamp share the header beside it. Addressed recipients follow
+the timestamp on the same line, using the same small, muted text. Message content
+follows below. The timestamp exposes its full date and time on hover and to assistive
+technology. Person, agent, and group icons are avatar fallbacks, including when an
+image cannot load. The current branch contract has no avatar-image URLs, so chat
+uses the appropriate actor icons.
+
+Reply previews are horizontally indented as a group, with a smaller offset on
+narrow screens. Their avatars, headers, and full-width content start inside that
+indent; they do not return to the root message's alignment.
 
 The chat header has standard-sized desktop icon controls for Files, Notes, Tasks,
 Secrets, and Participants, with accessible labels and tooltips. Rename lives in
@@ -299,17 +310,85 @@ and the chat name truncates as needed.
 
 ### Interaction behavior
 
-Preserve Markdown and math, code/message copying, attachments, group/direct
-delivery, agent mentions, keyboard send, auto-follow, and jump-to-latest.
-Chat activity includes tool/thinking progress, elapsed durations, cancellation,
-failures, expandable history, and approve/reject actions.
+The feed consumes `/events/branch`, not the execution transcript tree. A branch
+contains conversational events sharing one actual parent; the root branch has no
+parent. Entries show two slightly indented reply previews. A third, metadata-only
+candidate signals additional replies; it is not another rendered preview. Agent
+outcomes and owned input/approval controls are supplied independently of those
+preview slots. The UI shows each agent's answer or working, waiting, cancelling,
+completed, failed, or cancelled state, not tool/thinking rows or expandable
+execution history. Agent status rows, approval activity, and the empty-reply
+placeholder use small, muted text. Cancel matches the status text size. Routine cancellation displays **Cancelled**, without repeating
+the cancellation code; a distinct cancellation reason is retained when supplied. Owned input/approval activity stays inside the agent message,
+after its author header but before its current status or final answer content.
+A submitted-input receipt therefore precedes resumed work as well as the eventual
+reply; it is not an answer footer. This grouping does not change actual event relationships or
+sort unrelated branch entries.
+
+Message actions are anchored immediately after the author/timestamp/recipient
+text, not to the far edge of the chat. Their inline anchor wraps with the header
+and reserves its natural control width without adding the controls' height. On
+devices with a fine pointer, hover and no touch pointer, hovering a message or
+focusing one of its controls reveals **Copy message** and **Reply** icon buttons.
+Copy writes the stored message Markdown, not rendered HTML or author metadata.
+Successful copying is silent, with no Copied tooltip; clipboard failures still
+show an error. Code-block copying stays separate. Messages without text have no
+empty Copy action.
+
+Touch, coarse-pointer and non-hover devices instead show an always-visible **…**
+button, including on messages with no replies. Tapping it opens the same labelled
+Copy/Reply actions; discovery never requires a long-press or tapping message text.
+Hybrid touch devices retain this visible menu even if they also have a mouse.
+
+**Reply** opens the displayed event's child branch, including the actual answer
+event rather than its hidden execution owner. There is no inline Reply text
+link. When the existing more-replies flag signals hidden replies beyond the two
+previews, **See all replies** appears after the preview group and opens the owning
+entry's child branch. When the previews already show all replies, there is no
+footer link. Previews and pinned parents can be copied but
+do not expose individual Reply actions; navigate into the thread first to reply
+to a preview message.
+The `parent` query parameter preserves branch selection on
+reload and supports browser Back/Forward. In a child branch, the response's full
+`parent` event is pinned beneath a compact **Replying to** heading, outside the
+scrolling replies. The heading retains heading semantics and semibold foreground
+text, using the small heading size with tight line height. A native, primary-colored
+**Back** link with a left arrow sits directly above it, with no added stack gap. Ordinary
+activation uses browser history when available and otherwise returns to the chat
+root; modified clicks retain native link behavior. A larger gap separates that
+group from the anchor message. It retains its actual author, timestamp, recipients and
+attachments, without a self-reply link. Long context can scroll independently
+within a capped header so replies retain space. Back uses the normal navigation
+font size and falls back to the root conversation when there is no browser history.
+Branches load oldest first in pages of 20; **Load more messages** continues the
+current branch without jumping past the newly loaded messages.
+
+Markdown and math, message and code-block copying, attachments, explicit recipients,
+mentions, keyboard send, cancellation, approve/reject actions, and scoped input
+forms remain available. Input descriptors, drafts, and submitted values still
+come only from scoped input APIs, never from the branch projection.
+
+The composer is available in both root and thread views. Root messages omit
+`parent`; thread replies send the selected parent's actual event ID. A thread's
+send action remains disabled until its parent has loaded successfully. Reply
+parent and recipients are independent: opening a thread does not inherit the
+parent's recipients or attachments. The existing session-scoped draft, selected
+recipients and chosen files remain intact across branch navigation.
+
+A send captures its parent, text, recipients and files before uploading. Changing
+branches during upload or submission cannot retarget it. After success, the UI
+refreshes the current branch's already-opened pages. If the new message is outside
+those pages or belongs to another branch, an explicit receipt links to its replies;
+the UI does not append it into the wrong branch, after a gap, or automatically
+drain the remaining history.
 
 The conversation remains mounted during resource navigation; see
 [Lifecycle](04-lifecycle.md#chat-and-resource-navigation) for state retention.
 
 ### Component references
 
-`SessionWorkspace`, `SessionChatRoute`, `Feed`, `Message`, `InputBar`,
+`SessionWorkspace`, `SessionChatRoute`, `ConversationBranch`, `ConversationEvent`,
+`ConversationInteraction`, `Feed`, `Message`, `MessageActions`, `InputBar`,
 `InputBarAttachments`, `InputAttachment`, `InputRecipient`, `FloatingAction`, and
 `ViewNavigation`.
 
@@ -513,8 +592,8 @@ layout and lifecycle rules are owned by the sections above and by
 | Project/session secrets | Create/edit/delete descriptions and secret values; metadata-only detail views; blank replacement preserves the current value. |
 | Record types | Define/edit/delete schemas, field types, reference targets, cardinality, uniqueness, display order, and descriptions. |
 | Records | Schema-generated editing, many-valued/sensitive fields, file/record references, primary/secondary display, reverse references, and pagination. |
-| Chat | Markdown and math, code/message copying, attachments, group/direct delivery, agent mentions, keyboard send, auto-follow, and jump-to-latest. |
-| Chat activity | Tool/thinking progress, elapsed durations, cancellation, failures, expandable history, and approve/reject actions. |
+| Chat | Markdown and math, message/code-block copying, attachments, group/direct delivery, agent mentions, keyboard send, auto-follow, and jump-to-latest. |
+| Chat activity | Per-agent answers/states, cancellation, failures, scoped input forms, and approve/reject actions; no tool/thinking rows. |
 | Shared input forms | Recursive object/list fields; required/optional text, number, options, boolean, files, and external custom tools; shared drafts, clearing, saving, submission, cancellation, and focus refresh. |
 | Session file-picker tool | Capability-gated listing/upload/download, selected file chips, limits, name/media filters, pagination, saved selection, and expired/denied/resolved states. |
 | System overview | Entry points to all system administration areas. |

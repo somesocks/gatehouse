@@ -21,7 +21,10 @@ branch reflects current request/interaction state.
 
 The response follows the generated `ConversationBranch` API schema:
 
-- `parent`: scoped event reference, omitted for the root branch.
+- `parent`: full public transcript event selected by the `parent` parameter,
+  omitted for the root branch. Its identity is `parent.ref`. It is separate from
+  `entries`, does not consume a page slot, and is returned on every thread page,
+  including empty branches. Clients can render it as pinned thread context.
 - `entries`: branch members. Each contains a public transcript `event`, up to
   two `previews`, and `has_more_replies`.
 - `agent_requests`: state for each agent request visible as a branch member or
@@ -72,8 +75,10 @@ also continues to use the existing authorized approval endpoint.
 
 `SessionConversationBranchGet` selects branch membership, previews, outcomes,
 cancellations and interaction resolution in one SQL statement/snapshot on
-SQLite and PostgreSQL. HTTP authorization, attachment metadata and agent display
-metadata use their existing separate reads. No file bodies are loaded.
+SQLite and PostgreSQL. HTTP authorization, the scoped parent event lookup,
+attachment metadata and agent display metadata use their existing separate
+reads. The parent receives the same public projection and batch hydration as
+branch members. No file bodies are loaded.
 
 Only selected branch/preview membership is bounded by the page/preview limits.
 Cancellation discovery can scan a selected request's children. Interactive
