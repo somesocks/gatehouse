@@ -19,6 +19,7 @@ import (
 
 var ErrSessionApprovalResolved = errors.New("session approval is already resolved")
 var ErrSessionReplyAlreadyCompleted = errors.New("session reply is already completed")
+var ErrSessionEventParent = errors.New("session event parent is unavailable or invalid")
 
 func (store *Store) SessionsCreate(ctx context.Context, session model.Session, grantee model.PrincipalRef) (error, model.Session) {
 	if strings.TrimSpace(session.Ref.Id) == "" {
@@ -421,7 +422,7 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 			return fmt.Errorf("check session event parent: %w", err), model.SessionEvent{}
 		}
 		if !parentExists {
-			return fmt.Errorf("create session event: parent must already exist"), model.SessionEvent{}
+			return fmt.Errorf("%w: parent must already exist", ErrSessionEventParent), model.SessionEvent{}
 		}
 	}
 	createdAt, err := typed_id.Timestamp(typed_id.SessionEvent, event.Ref.Id)
@@ -487,8 +488,8 @@ func (store *Store) SessionMessagesCreateInTransaction(ctx context.Context, tran
 	if err != nil {
 		return err, nil
 	}
-	if event.Parent != nil || event.AuthorPrincipal == nil || event.AuthorAgent != nil || event.AuthorGateway != nil {
-		return fmt.Errorf("create session message: message must be a principal-authored root"), nil
+	if event.AuthorPrincipal == nil || event.AuthorAgent != nil || event.AuthorGateway != nil {
+		return fmt.Errorf("create session message: message must be principal-authored"), nil
 	}
 	events := make([]model.SessionEvent, 1, len(targets)+1)
 	events[0] = event
@@ -762,7 +763,7 @@ func (store *Store) sessionEventsCreateBatchInTransaction(ctx context.Context, t
 					return fmt.Errorf("check session event parent: %w", err), nil
 				}
 				if !parentExists {
-					return fmt.Errorf("create session events: event %d parent must already exist or appear earlier in the batch", index), nil
+					return fmt.Errorf("%w: event %d parent must already exist or appear earlier in the batch", ErrSessionEventParent, index), nil
 				}
 			}
 		}
@@ -1724,10 +1725,10 @@ func sessionEventParentValue(event model.SessionEvent) (any, error) {
 		return nil, nil
 	}
 	if event.Parent.Session != event.Ref.Session {
-		return nil, fmt.Errorf("create session event: parent belongs to another session")
+		return nil, fmt.Errorf("%w: parent belongs to another session", ErrSessionEventParent)
 	}
 	if strings.TrimSpace(event.Parent.Id) == "" || event.Parent.Id == event.Ref.Id {
-		return nil, fmt.Errorf("create session event: parent is invalid")
+		return nil, ErrSessionEventParent
 	}
 	return event.Parent.Id, nil
 }

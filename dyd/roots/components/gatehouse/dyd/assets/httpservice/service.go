@@ -429,6 +429,7 @@ type sessionProjectRequest struct {
 }
 
 type sessionMessageRequest struct {
+	Parent      *string                   `json:"parent"`
 	Text        string                    `json:"text"`
 	Agents      []string                  `json:"agents"`
 	Targets     *[]model.MessageTargetRef `json:"targets"`
@@ -1836,6 +1837,10 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "invalid message", http.StatusBadRequest)
 			return
 		}
+		if message.Parent != nil && !typed_id.Valid(typed_id.SessionEvent, *message.Parent) {
+			http.Error(response, "invalid message parent", http.StatusBadRequest)
+			return
+		}
 		if message.Targets != nil && message.Agents != nil {
 			http.Error(response, "specify targets or agents, not both", http.StatusBadRequest)
 			return
@@ -1856,6 +1861,9 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			AuthorPrincipal: &claims.Principal,
 			Payload:         payload,
 		}
+		if message.Parent != nil {
+			event.Parent = &model.SessionEventRef{Session: session, Id: *message.Parent}
+		}
 		if dispatcher == nil {
 			http.Error(response, "agent runtime unavailable", http.StatusServiceUnavailable)
 			return
@@ -1866,7 +1874,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 				http.Error(response, "You do not have permission to send to recipients outside this chat.", http.StatusForbidden)
 				return
 			}
-			if errors.Is(err, database.ErrMessageTarget) {
+			if errors.Is(err, database.ErrMessageTarget) || errors.Is(err, database.ErrSessionEventParent) {
 				http.Error(response, err.Error(), http.StatusBadRequest)
 				return
 			}

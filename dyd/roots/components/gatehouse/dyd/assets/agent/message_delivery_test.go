@@ -43,10 +43,12 @@ func testTransactionalDelivery(t *testing.T, configuration config.DatabaseConfig
 		if err := f.store.QueryRow(`SELECT COUNT(*) FROM ` + f.system + `workflow_status WHERE status = 'ENQUEUED'`).Scan(&queued); err != nil || queued != 3 {
 			t.Fatalf("message did not commit two replies and one title: %d (%v)", queued, err)
 		}
-		// Repeating a title enqueue must not abort this second message's
-		// transaction or create another title workflow.
-		if err, _ := f.runtime.CreateMessage(context.Background(), f.message(t, f.bots...)); err != nil {
-			t.Fatal(err)
+		// A reply must enqueue its own agent requests atomically, without
+		// creating another title workflow for the same session.
+		reply := f.message(t, f.bots...)
+		reply.Parent = &message.Ref
+		if err, stored := f.runtime.CreateMessage(context.Background(), reply); err != nil || stored.Parent == nil || *stored.Parent != message.Ref {
+			t.Fatalf("create reply = %#v, %v", stored, err)
 		}
 		if err := f.store.QueryRow(`SELECT COUNT(*) FROM ` + f.system + `workflow_status WHERE name = 'gatehouse.session-name'`).Scan(&titles); err != nil || titles != 1 {
 			t.Fatalf("title workflow was not deduplicated: %d (%v)", titles, err)
