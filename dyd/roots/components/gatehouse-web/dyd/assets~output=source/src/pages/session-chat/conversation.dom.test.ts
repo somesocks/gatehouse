@@ -925,12 +925,8 @@ it("navigates to the actual selected parent, restores the root draft on history/
   await vi.waitFor(() =>
     expect(document.body.textContent).toContain("Nested reply"),
   )
-  vi.spyOn(window.history, "length", "get").mockReturnValue(2)
-  const back = vi
-    .spyOn(window.history, "back")
-    .mockImplementation(() => history(root))
   backLink().click()
-  expect(back).toHaveBeenCalledOnce()
+  expect(navigate).toHaveBeenLastCalledWith(root)
   await vi.waitFor(() =>
     expect(document.getElementById("message")).not.toBeNull(),
   )
@@ -1086,7 +1082,6 @@ it("hydrates a deep-linked branch after a fresh mount and offers root navigation
   expect(document.body.textContent).not.toContain("Answer Markdown")
   editField("message", "Draft while unavailable")
   expect(replyButton().disabled).toBe(true)
-  vi.spyOn(window.history, "length", "get").mockReturnValue(1)
   backLink().click()
   expect(navigate).toHaveBeenLastCalledWith(root)
   await tick()

@@ -408,23 +408,7 @@
   <UI.Stack gap="normal">
     <UI.Stack gap="none">
       <UI.Row as="nav" aria-label="Branch navigation">
-        <UI.RouterLink
-          href={rootPath}
-          onclick={(event) => {
-            if (
-              !event.defaultPrevented &&
-              event.button === 0 &&
-              !event.metaKey &&
-              !event.ctrlKey &&
-              !event.altKey &&
-              !event.shiftKey &&
-              window.history.length > 1
-            ) {
-              event.preventDefault()
-              window.history.back()
-            }
-          }}
-        >
+        <UI.RouterLink href={rootPath}>
           <UI.Row as="span" gap="small">
             <UI.ArrowLeft size={14} strokeWidth={2} aria-hidden="true" /> Back
           </UI.Row>

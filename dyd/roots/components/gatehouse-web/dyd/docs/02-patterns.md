@@ -351,13 +351,10 @@ reload and supports browser Back/Forward. In a child branch, the response's full
 `parent` event is pinned beneath a compact **Replying to** heading, outside the
 scrolling replies. The heading retains heading semantics and semibold foreground
 text, using the small heading size with tight line height. A native, primary-colored
-**Back** link with a left arrow sits directly above it, with no added stack gap. Ordinary
-activation uses browser history when available and otherwise returns to the chat
-root; modified clicks retain native link behavior. A larger gap separates that
-group from the anchor message. It retains its actual author, timestamp, recipients and
-attachments, without a self-reply link. Long context can scroll independently
-within a capped header so replies retain space. Back uses the normal navigation
-font size and falls back to the root conversation when there is no browser history.
+**Back** link with a left arrow sits directly above it, with no added stack gap.
+A larger gap separates that group from the anchor message. It retains its actual
+author, timestamp, recipients and attachments, without a self-reply link. Long
+context can scroll independently within a capped header so replies retain space.
 Branches load oldest first in pages of 20; **Load more messages** continues the
 current branch without jumping past the newly loaded messages.
 
