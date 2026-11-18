@@ -20,7 +20,6 @@
     workspaceID,
     sessionID,
     onAuthenticationLost,
-    allowReply = true,
     anchor = false,
   }: {
     event: ChatEvent
@@ -29,7 +28,6 @@
     workspaceID: string
     sessionID: string
     onAuthenticationLost: () => void
-    allowReply?: boolean
     anchor?: boolean
   } = $props()
   const runtime = useRuntime()
@@ -81,8 +79,7 @@
       : "Status unavailable",
   )
   const canReply = $derived(
-    allowReply &&
-      !anchor &&
+    !anchor &&
       (displayed.kind === "message.text" ||
         displayed.kind === "agent.success" ||
         displayed.kind === "agent.failure" ||

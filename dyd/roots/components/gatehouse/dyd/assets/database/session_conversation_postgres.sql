@@ -62,12 +62,12 @@ terminals AS MATERIALIZED (
  ) AS c
  WHERE c.author_agent=r.agent
 ),
--- A visible agent request stands in for its outcome in the UI. Preview
--- posted replies to the outcome itself, without expanding another request level.
+-- An agent request on this page stands in for its outcome in the UI.
+-- Preview replies to that outcome only for page members, never for previews.
 outcome_previews AS MATERIALIZED (
  SELECT t.owner,c.id,c.parent,c.kind,c.created_at,
         row_number() OVER (PARTITION BY t.id ORDER BY c.created_at,c.id) AS slot
- FROM terminals AS t CROSS JOIN LATERAL (
+ FROM terminals AS t JOIN page AS b ON b.id=t.owner CROSS JOIN LATERAL (
   SELECT p.id,p.parent,p.kind,p.created_at FROM gatehouse_session_events AS p
   WHERE p.workspace=@workspace AND p.session=@session AND p.parent=t.id AND p.kind='message.text'
   ORDER BY p.created_at,p.id LIMIT 4

@@ -35,17 +35,16 @@
       : "Send the first message to begin."}</UI.Text
   >
 {/if}
-{#snippet conversationEvent(event: ChatEvent, allowReply: boolean)}
+{#snippet conversationEvent(event: ChatEvent, isEntry: boolean)}
   <ConversationEvent
     {event}
-    {allowReply}
     {branch}
     {controller}
     {workspaceID}
     {sessionID}
     {onAuthenticationLost}
   />
-  {#if event.kind === "agent.request"}
+  {#if isEntry && event.kind === "agent.request"}
     {@const request = branch.agent_requests.find(
       (item) => item.request.id === event.ref.id,
     )}
@@ -54,7 +53,6 @@
         {#each request.outcome_previews ?? [] as reply (reply.ref.id)}
           <ConversationEvent
             event={reply}
-            allowReply={false}
             {branch}
             {controller}
             {workspaceID}

@@ -341,13 +341,11 @@ Copy/Reply actions; discovery never requires a long-press or tapping message tex
 Hybrid touch devices retain this visible menu even if they also have a mouse.
 
 **Reply** opens the displayed event's child branch, including the actual answer
-event rather than its hidden execution owner. There is no inline Reply text
-link. When the existing more-replies flag signals hidden replies beyond the two
-previews, **See all replies** appears after the preview group and opens the owning
-entry's child branch. When the previews already show all replies, there is no
-footer link. Previews and pinned parents can be copied but
-do not expose individual Reply actions; navigate into the thread first to reply
-to a preview message.
+event rather than its hidden execution owner. It is available on both entries and
+message previews. The pinned parent is copy-only. There is no inline Reply text
+link. **See all replies** appears after a preview group if there are more than
+three replies, or when the group previews replies to a displayed agent outcome.
+Previews themselves do not show nested previews.
 The `parent` query parameter preserves branch selection on
 reload and supports browser Back/Forward. In a child branch, the response's full
 `parent` event is pinned beneath a compact **Replying to** heading, outside the

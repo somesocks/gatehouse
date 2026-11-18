@@ -441,7 +441,6 @@
           workspaceID={currentRoute.workspaceID}
           sessionID={currentRoute.sessionID}
           onAuthenticationLost={runtime.requireLogin}
-          allowReply={false}
           anchor
         />
       </UI.Stack>

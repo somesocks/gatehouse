@@ -29,8 +29,9 @@ The response follows the generated `ConversationBranch` API schema:
   three `previews`, and `has_more_replies`.
 - `agent_requests`: state for each agent request visible as a branch member or
   preview. Each contains its `request` reference, `state`, interaction references
-  and an optional terminal `outcome` event. When that outcome has posted replies,
-  `outcome_previews` contains up to three direct `message.text` children, with
+  and an optional terminal `outcome` event. Only when the agent request is a
+  branch member (not a preview), `outcome_previews` contains up to three posted
+  `message.text` replies directly under that outcome, with
   `outcome_has_more_replies` set when a fourth exists.
 - `interactions`: input/approval `request` events and their optional `response`
   events, including requests displayed directly as members/previews.
@@ -51,11 +52,11 @@ three are hydrated and expanded. The fourth sets `has_more_replies`; it is not
 returned as a preview or expanded into outcomes/interactions. Agent requests
 have their terminal outcome loaded separately rather than spending another
 preview slot on it. Input/approval requests expose resolution state separately.
-Previews do not recursively acquire previews. The exception is a visible agent
-request folded into its terminal outcome: the posted replies directly under
-that outcome are previewed, even if the request is itself a preview. These
-replies are not expanded further. The UI links to the outcome's reply branch
-from this preview footer, not to the internal request.
+Each branch shows only one preview level. When a branch member is an agent
+request folded into its terminal outcome, the preview level shows posted replies
+under that outcome. The UI links to the outcome's reply branch from this preview
+footer, not to the internal request. Agent outcomes shown as previews do not
+show replies of their own.
 
 States are `working`, `waiting`, `cancelling`, `completed`, `failed` and
 `cancelled`. A terminal outcome takes precedence over working/waiting/cancelling.

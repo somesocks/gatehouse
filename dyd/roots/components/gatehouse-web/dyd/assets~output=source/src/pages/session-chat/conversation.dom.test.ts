@@ -362,7 +362,7 @@ it("renders two conversational previews, actual answer links, per-agent state an
   ).toBe(true)
 })
 
-it("previews siblings under a folded agent answer and opens the outcome branch", async () => {
+it("previews replies to an agent answer only when that answer is a branch entry", async () => {
   const base = api()
   const navigate = vi.fn()
   const replies = ["First follow-up", "Sibling follow-up"].map((text, i) =>
@@ -373,7 +373,8 @@ it("previews siblings under a folded agent answer and opens the outcome branch",
     vi.fn(async (path: string, options?: RequestInit) => {
       const url = new URL(path, "http://localhost")
       if (!url.pathname.endsWith("/events/branch")) return base(path, options)
-      if (url.searchParams.get("parent") === "answer")
+      const parent = url.searchParams.get("parent")
+      if (parent === "answer")
         return Response.json({
           ...empty,
           parent: answer,
@@ -381,7 +382,9 @@ it("previews siblings under a folded agent answer and opens the outcome branch",
         })
       return Response.json({
         ...empty,
-        entries: [{ ...entry(first), previews: [requests[0]] }],
+        ...(parent === "first"
+          ? { parent: first, entries: [entry(requests[0]!)] }
+          : { entries: [{ ...entry(first), previews: [requests[0]] }] }),
         agent_requests: [
           {
             request: requests[0]!.ref,
@@ -400,9 +403,24 @@ it("previews siblings under a folded agent answer and opens the outcome branch",
   })
   const previewGroup = () =>
     document.querySelector('[aria-label="Replies to agent message"]')
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("Answer Markdown"),
+  )
+  expect(previewGroup()).toBeNull()
+  expect(document.body.textContent).not.toContain("First follow-up")
+  expect(document.body.textContent).not.toContain("Sibling follow-up")
+  expect(document.querySelector(`a[href="${root}?parent=answer"]`)).toBeNull()
+  document
+    .querySelector<HTMLButtonElement>(
+      '[data-slot="message-toolbar"] button[aria-label="Reply"]',
+    )!
+    .click()
   await vi.waitFor(() => expect(previewGroup()).not.toBeNull())
+  expect(navigate).toHaveBeenLastCalledWith(`${root}?parent=first`)
   const preview = previewGroup()!
-  expect(preview.closest('[aria-label="Reply previews"]')).not.toBeNull()
+  expect(
+    preview.parentElement?.closest('[data-slot="message-replies"]'),
+  ).toBeNull()
   expect(preview.previousElementSibling?.textContent).toContain(
     "Answer Markdown",
   )
@@ -414,6 +432,7 @@ it("previews siblings under a folded agent answer and opens the outcome branch",
     expect.stringContaining("First follow-up"),
     expect.stringContaining("Sibling follow-up"),
   ])
+  expect(preview.querySelectorAll('button[aria-label="Reply"]')).toHaveLength(2)
   const path = `${root}?parent=answer`
   expect(preview.querySelector(`a[href="${path}"]`)?.textContent).toBe(
     "See all replies",
@@ -422,13 +441,13 @@ it("previews siblings under a folded agent answer and opens the outcome branch",
     document.querySelector(`a[href="${root}?parent=request-one"]`),
   ).toBeNull()
   follow(path)
-  await vi.waitFor(() =>
-    expect(document.body.textContent).toContain("Replying to"),
-  )
-  expect(navigate).toHaveBeenCalledWith(path)
-  expect(previewGroup()).toBeNull()
-  expect(document.body.textContent).toContain("First follow-up")
-  expect(document.body.textContent).toContain("Sibling follow-up")
+  await vi.waitFor(() => {
+    expect(previewGroup()).toBeNull()
+    expect(document.body.textContent).toContain("Replying to")
+    expect(document.body.textContent).toContain("First follow-up")
+    expect(document.body.textContent).toContain("Sibling follow-up")
+  })
+  expect(navigate).toHaveBeenLastCalledWith(path)
 })
 
 it("keeps input activity inside the agent message before waiting, resumed work, and the final answer", async () => {
@@ -658,25 +677,30 @@ it.each([0, 1, 2, 3, 4])(
   "places reply navigation correctly for %i replies",
   async (replyCount) => {
     const base = api()
+    const navigate = vi.fn()
+    const replies = Array.from({ length: Math.min(replyCount, 3) }, (_, i) =>
+      event(
+        `preview-${i}`,
+        "message.text",
+        { text: `Reply preview ${i}` },
+        "first",
+      ),
+    )
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string, options?: RequestInit) => {
+        if (
+          path.includes("/events/branch?") &&
+          path.includes("parent=preview-0")
+        )
+          return Response.json({ ...empty, parent: replies[0] })
         if (path.includes("/events/branch?"))
           return Response.json({
             ...empty,
             entries: [
               {
                 event: first,
-                previews: Array.from(
-                  { length: Math.min(replyCount, 3) },
-                  (_, index) =>
-                    event(
-                      `preview-${index}`,
-                      "message.text",
-                      { text: `Reply preview ${index}` },
-                      "first",
-                    ),
-                ),
+                previews: replies,
                 has_more_replies: replyCount > 3,
               },
               entry(
@@ -691,7 +715,7 @@ it.each([0, 1, 2, 3, 4])(
     )
     app = mount(ConversationFixture, {
       target: document.body,
-      props: { initialPath: root, onNavigate: vi.fn() },
+      props: { initialPath: root, onNavigate: navigate },
     })
     await vi.waitFor(() =>
       expect(document.body.textContent).toContain("Root question"),
@@ -722,7 +746,9 @@ it.each([0, 1, 2, 3, 4])(
       expect(previewMessages).toHaveLength(Math.min(replyCount, 3))
       for (const preview of previewMessages) {
         expect(preview.querySelector("a")).toBeNull()
-        expect(preview.querySelector('button[aria-label="Reply"]')).toBeNull()
+        expect(
+          preview.querySelector('button[aria-label="Reply"]'),
+        ).not.toBeNull()
         expect(
           preview.querySelector('button[aria-label="Copy message"]'),
         ).not.toBeNull()
@@ -751,10 +777,21 @@ it.each([0, 1, 2, 3, 4])(
           item.textContent === "More replies",
       ),
     ).toBe(false)
+    if (replyCount === 1) {
+      previews!
+        .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')!
+        .click()
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[aria-label="Thread anchor"]')?.textContent,
+        ).toContain("Reply preview 0"),
+      )
+      expect(navigate).toHaveBeenLastCalledWith(`${root}?parent=preview-0`)
+    }
   },
 )
 
-it("copies the displayed outcome's Markdown and opens its actual branch through the Reply action", async () => {
+it("copies the agent preview's Markdown and replies to its actual outcome", async () => {
   const request = api(),
     navigate = vi.fn()
   const writeText = vi
@@ -775,22 +812,8 @@ it("copies the displayed outcome's Markdown and opens its actual branch through 
   await vi.waitFor(() =>
     expect(writeText).toHaveBeenCalledWith("Answer Markdown"),
   )
-  expect(preview.querySelector('button[aria-label="Reply"]')).toBeNull()
-  document
-    .querySelector<HTMLButtonElement>(
-      '[data-slot="message-toolbar"] button[aria-label="Reply"]',
-    )!
-    .click()
-  await vi.waitFor(() =>
-    expect(document.querySelector('[data-slot="feed"]')?.textContent).toContain(
-      "Nested reply",
-    ),
-  )
-  expect(navigate).toHaveBeenLastCalledWith(`${root}?parent=first`)
-  document
-    .querySelector<HTMLButtonElement>(
-      '[data-purpose="output"] button[aria-label="Reply"]',
-    )!
+  preview
+    .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')!
     .click()
   await vi.waitFor(() =>
     expect(

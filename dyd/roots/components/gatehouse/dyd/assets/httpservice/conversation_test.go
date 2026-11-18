@@ -149,16 +149,8 @@ func TestConversationBranchAPI(t *testing.T) {
 	if outcome["parent"].(map[string]any)["id"] != refs["ar"].Id || outcome["author_agent"].(map[string]any)["alias"] != "assistant" {
 		t.Fatalf("lost actual parent or attribution: %#v", outcome)
 	}
-	replies := agent["outcome_previews"].([]any)
-	if len(replies) != 3 || agent["outcome_has_more_replies"] != true || strings.Contains(string(encoded), refs["answer-reply-4"].Id) || strings.Contains(string(encoded), "answer-reply-4") {
-		t.Fatalf("folded answer previews = %#v", agent)
-	}
-	for i, value := range replies {
-		reply := value.(map[string]any)
-		file := reply["payload"].(map[string]any)["attachments"].([]any)[0].(map[string]any)
-		if reply["ref"].(map[string]any)["id"] != refs[fmt.Sprintf("answer-reply-%d", i+1)].Id || reply["parent"].(map[string]any)["id"] != refs["answer"].Id || file["id"] != upload.File.Ref.Id {
-			t.Fatalf("folded reply lost identity, parent or file metadata: %#v", reply)
-		}
+	if agent["outcome_previews"] != nil || agent["outcome_has_more_replies"] != nil || strings.Contains(string(encoded), "answer-reply-") {
+		t.Fatalf("root response exposed replies nested under a preview: %s", encoded)
 	}
 	interactions := first["interactions"].([]any)
 	if len(interactions) != 1 || interactions[0].(map[string]any)["response"].(map[string]any)["kind"] != "input.success" {
@@ -172,6 +164,25 @@ func TestConversationBranchAPI(t *testing.T) {
 	thread := get(base + "/events/branch?parent=" + refs["a"].Id + "&limit=1")
 	if !reflect.DeepEqual(thread["parent"], event) || len(thread["entries"].([]any)) != 1 || thread["next_cursor"] == nil {
 		t.Fatalf("thread parent or pagination = %#v", thread)
+	}
+	threadAgent := thread["agent_requests"].([]any)[0].(map[string]any)
+	replies, ok := threadAgent["outcome_previews"].([]any)
+	if !ok || len(replies) != 3 || threadAgent["outcome_has_more_replies"] != true {
+		t.Fatalf("agent reply branch entry previews = %#v", threadAgent)
+	}
+	for i, value := range replies {
+		reply := value.(map[string]any)
+		file := reply["payload"].(map[string]any)["attachments"].([]any)[0].(map[string]any)
+		if reply["ref"].(map[string]any)["id"] != refs[fmt.Sprintf("answer-reply-%d", i+1)].Id || reply["parent"].(map[string]any)["id"] != refs["answer"].Id || file["id"] != upload.File.Ref.Id {
+			t.Fatalf("folded reply lost identity, parent or file metadata: %#v", reply)
+		}
+	}
+	threadEncoded, err := json.Marshal(thread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(threadEncoded), refs["answer-reply-4"].Id) || strings.Contains(string(threadEncoded), "answer-reply-4") {
+		t.Fatalf("fourth answer reply was exposed: %s", threadEncoded)
 	}
 	continued := get(base + "/events/branch?parent=" + refs["a"].Id + "&limit=1&cursor=" + url.QueryEscape(thread["next_cursor"].(string)))
 	if !reflect.DeepEqual(continued["parent"], event) {
