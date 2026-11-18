@@ -19,7 +19,7 @@ import (
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 )
 
-func tadwProviderFixture(t *testing.T, protocol string) (*database.WorkspaceAgentModel, tadwPreparedHistory, tadwTranscript, tadwWindowConfig) {
+func tadwProviderFixture(t *testing.T, protocol string) (*database.WorkspaceAgentModel, tadwPreparedHistory, tadwTranscript, tadwWindowConfig, tadwRequestHints) {
 	t.Helper()
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "w"}, Id: "s"}
 	selected := tadwPreparationTestAgent(session)
@@ -43,9 +43,10 @@ func tadwProviderFixture(t *testing.T, protocol string) (*database.WorkspaceAgen
 	outcome.Parent = &tool.Ref
 	tooling := tadwAdapterRender(t, []model.SessionEvent{request, tool, outcome})
 	initial := tadwInitialHistory{History: history, Window: tadwHistoryWindow{EventIDs: []string{history[0].ID}, BaseEventID: history[0].ID, HistoryBytes: tadwRenderedBytes(history)}}
-	initial, cfg := tadwTideBudget(initial, tadwRenderedBytes(tooling)+100)
+	hints := tadwRequestHints{Request: request.Ref, Message: historyEvent.Ref}
+	initial, cfg := tadwTideBudget(initial, tadwRenderedBytes(tooling)+int64(len(tadwTestHintsXML(t, selected, hints)))+100)
 	prepared := tadwPreparedHistory{Agent: selected.Ref, Scope: tadwPreparationScope(t, session, selected, false), History: initial}
-	return selected, prepared, tadwTranscript{History: slices.Clone(history), Tooling: tooling}, cfg
+	return selected, prepared, tadwTranscript{History: slices.Clone(history), Tooling: tooling}, cfg, hints
 }
 
 // Inspect the marshalled body, not just the intermediate structs. JSON escaping
@@ -99,22 +100,23 @@ func tadwProviderUserContent(t *testing.T, request agentProviderRequest) (string
 func TestTADWProviderRequestWireBodiesAndOwnership(t *testing.T) {
 	for _, protocol := range []string{"openai-chat-completions", "openai-responses", config.AgentProviderProtocolOpenAICodex} {
 		t.Run(protocol, func(t *testing.T) {
-			selected, prepared, transcript, cfg := tadwProviderFixture(t, protocol)
+			selected, prepared, transcript, cfg, hints := tadwProviderFixture(t, protocol)
 			before, _ := json.Marshal(struct {
 				Prepared   tadwPreparedHistory
 				Transcript tadwTranscript
 				Selected   *database.WorkspaceAgentModel
 			}{prepared, transcript, selected})
-			err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg)
+			err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg, hints)
 			if err != nil {
 				t.Fatal(err)
 			}
 			content, wire := tadwProviderUserContent(t, request)
-			if content != transcript.String() || int64(len(content)) != transcript.Bytes() || !strings.Contains(content, "café&lt;&amp;") || !strings.HasSuffix(content, "/>\n") {
+			wantContent := transcript.String() + tadwTestHintsXML(t, selected, hints)
+			if content != wantContent || int64(len(content)) != transcript.Bytes()+int64(len(tadwTestHintsXML(t, selected, hints))) || !strings.Contains(content, "café&lt;&amp;") || !strings.HasSuffix(content, "</hints>\n") {
 				t.Fatal("content/bytes changed", content)
 			}
 			// The existing preparer is the oracle for all protocol-specific static fields.
-			err, want := agentProviderRequestPrepare(selected, false, []openAICompatibleMessage{{Role: "user", Content: transcript.String()}})
+			err, want := agentProviderRequestPrepare(selected, false, []openAICompatibleMessage{{Role: "user", Content: wantContent}})
 			if err != nil || !reflect.DeepEqual(request, want) {
 				t.Fatal("provider settings drifted", err)
 			}
@@ -189,14 +191,18 @@ func TestTADWProviderRequestBindsIdentityToRecipientID(t *testing.T) {
 			owner.Parent = &message.Ref
 			tooling := tadwAdapterRender(t, []model.SessionEvent{owner})
 			initial := tadwInitialHistory{History: history, Window: tadwHistoryWindow{EventIDs: []string{message.Ref.Id}, BaseEventID: message.Ref.Id, HistoryBytes: tadwRenderedBytes(history)}}
-			initial, cfg := tadwTideBudget(initial, tadwRenderedBytes(tooling)+100)
+			hints := tadwRequestHints{Request: owner.Ref, Message: message.Ref}
+			initial, cfg := tadwTideBudget(initial, tadwRenderedBytes(tooling)+int64(len(tadwTestHintsXML(t, selected, hints)))+100)
 			prepared := tadwPreparedHistory{Agent: selected.Ref, Scope: tadwPreparationScope(t, session, selected, false), History: initial}
 			transcript := tadwTranscript{History: history, Tooling: tooling}
-			err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg)
+			err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg, hints)
 			if err != nil {
 				t.Fatal(err)
 			}
 			content, wire := tadwProviderUserContent(t, request)
+			if !strings.HasSuffix(content, tadwTestHintsXML(t, selected, hints)) {
+				t.Fatal("wire input lost this agent's trailing hints", content)
+			}
 			var instructions string
 			if err := json.Unmarshal(wire["instructions"], &instructions); err != nil {
 				t.Fatal(err)
@@ -220,20 +226,20 @@ func TestTADWProviderRequestBindsIdentityToRecipientID(t *testing.T) {
 func TestTADWProviderRequestEmptyHistoryAndPromptReplacement(t *testing.T) {
 	for _, protocol := range []string{"openai-chat-completions", "openai-responses", config.AgentProviderProtocolOpenAICodex} {
 		for _, replacement := range []string{"", "override only"} {
-			selected, prepared, transcript, cfg := tadwProviderFixture(t, protocol)
+			selected, prepared, transcript, cfg, hints := tadwProviderFixture(t, protocol)
 			selected.SystemPromptReplacement = &replacement
 			prepared.Scope = tadwPreparationScope(t, prepared.Scope.Session, selected, true)
 			prepared.History = tadwInitialHistory{}
 			cfg = tadwWindowConfig{ContextMaxBytes: 10000, HistoryMaxBytes: 5000, HistoryMinBytes: 1}
 			prepared.History.Window.ToolingBudgetBytes = cfg.ContextMaxBytes
 			transcript.History = nil
-			err, request := agentProviderRequestPrepareTADW(selected, true, prepared, transcript, cfg)
+			err, request := agentProviderRequestPrepareTADW(selected, true, prepared, transcript, cfg, hints)
 			if err != nil {
 				t.Fatal(err)
 			}
 			content, _ := tadwProviderUserContent(t, request)
-			if content != transcript.String() {
-				t.Fatal("empty history changed tooling")
+			if content != transcript.String()+tadwTestHintsXML(t, selected, hints) {
+				t.Fatal("empty history changed tooling/hints")
 			}
 			if request.Chat != nil {
 				want := 1
@@ -261,18 +267,18 @@ func TestTADWProviderRequestRejectsConfigurationDrift(t *testing.T) {
 		func(s *database.WorkspaceAgentModel) { s.Ref.Id = fmt.Sprintf("wag_%026d", 2) },
 	}
 	for i, change := range changes {
-		selected, prepared, transcript, cfg := tadwProviderFixture(t, "openai-responses")
+		selected, prepared, transcript, cfg, hints := tadwProviderFixture(t, "openai-responses")
 		change(selected)
-		err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg)
+		err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg, hints)
 		if err == nil || !strings.Contains(err.Error(), "does not match") || !reflect.DeepEqual(request, agentProviderRequest{}) {
 			t.Fatal(i, err)
 		}
 	}
-	selected, prepared, transcript, cfg := tadwProviderFixture(t, "openai-responses")
-	if err, _ := agentProviderRequestPrepareTADW(selected, true, prepared, transcript, cfg); err == nil {
+	selected, prepared, transcript, cfg, hints := tadwProviderFixture(t, "openai-responses")
+	if err, _ := agentProviderRequestPrepareTADW(selected, true, prepared, transcript, cfg, hints); err == nil {
 		t.Fatal("project prompt drift accepted")
 	}
-	if err, _ := agentProviderRequestPrepareTADW(nil, false, prepared, transcript, cfg); err == nil {
+	if err, _ := agentProviderRequestPrepareTADW(nil, false, prepared, transcript, cfg, hints); err == nil {
 		t.Fatal("nil selection")
 	}
 }
@@ -280,7 +286,8 @@ func TestTADWProviderRequestRejectsConfigurationDrift(t *testing.T) {
 func TestTADWProviderRequestContextValidationAndBudget(t *testing.T) {
 	for _, name := range []string{"scope", "agent", "history-content", "history-order", "history-ids", "accounting", "history-utf8", "tool-utf8", "empty-tool-id", "empty-tool-xml", "duplicate", "overlap", "no-tooling", "overflow", "invalid-limits", "exact", "max-int"} {
 		t.Run(name, func(t *testing.T) {
-			selected, prepared, transcript, cfg := tadwProviderFixture(t, "openai-responses")
+			selected, prepared, transcript, cfg, hints := tadwProviderFixture(t, "openai-responses")
+			hintsBytes := int64(len(tadwTestHintsXML(t, selected, hints)))
 			// Clone to distinguish accidental mutation of both sides of the comparison.
 			transcript.History = slices.Clone(transcript.History)
 			switch name {
@@ -314,22 +321,22 @@ func TestTADWProviderRequestContextValidationAndBudget(t *testing.T) {
 			case "no-tooling":
 				transcript.Tooling = nil
 			case "overflow":
-				prepared.History, cfg = tadwTideBudget(prepared.History, transcript.ToolingBytes()-1)
+				prepared.History, cfg = tadwTideBudget(prepared.History, transcript.ToolingBytes()+hintsBytes-1)
 			case "invalid-limits":
 				cfg = tadwWindowConfig{}
 			case "exact":
-				prepared.History, cfg = tadwTideBudget(prepared.History, transcript.ToolingBytes())
+				prepared.History, cfg = tadwTideBudget(prepared.History, transcript.ToolingBytes()+hintsBytes)
 			case "max-int":
 				cfg.ContextMaxBytes = math.MaxInt64
 				prepared.History.Window.ToolingBudgetBytes = cfg.ContextMaxBytes - prepared.History.Window.HistoryBytes
 			}
-			err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg)
+			err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg, hints)
 			if name == "exact" || name == "max-int" {
 				if err != nil {
 					t.Fatal(err)
 				}
 				content, _ := tadwProviderUserContent(t, request)
-				if content != transcript.String() {
+				if content != transcript.String()+tadwTestHintsXML(t, selected, hints) {
 					t.Fatal("truncated context")
 				}
 				return
@@ -365,6 +372,11 @@ func TestTADWProviderRequestGrowingPrefixRolloverAndReconstruction(t *testing.T)
 		t.Run(protocol, func(t *testing.T) {
 			store, initial, cfg, request, _ := tadwToolingDB(t)
 			selected := tadwProviderDatabaseAgent(t, store, request)
+			hints, err := loadTADWRequestHints(context.Background(), store, request, selected.Ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hintsBytes := int64(len(tadwTestHintsXML(t, selected, hints)))
 			selected.Protocol = protocol
 			if protocol == config.AgentProviderProtocolOpenAICodex {
 				endpoint := config.OpenAICodexEndpoint
@@ -374,42 +386,42 @@ func TestTADWProviderRequestGrowingPrefixRolloverAndReconstruction(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			initial, cfg = tadwTideBudget(initial, full.ToolingBytes())
+			initial, cfg = tadwTideBudget(initial, full.ToolingBytes()+hintsBytes)
 			prepared := tadwPreparedHistory{Agent: selected.Ref, Scope: tadwPreparationScope(t, request.Session, selected, false), History: initial}
-			from, prior := "", ""
+			from, prior, priorWire := "", "", ""
 			var early agentProviderRequest
 			historyXML := (tadwTranscript{History: initial.History}).String()
 			for _, attempt := range []int{11, 40, 60} {
-				window, err := loadTADWToolingWindow(context.Background(), store, initial, request, selected.Ref, tadwToolingThinking(request, attempt), cfg, from)
+				window, err := loadTADWToolingWindow(context.Background(), store, initial, request, selected.Ref, tadwToolingThinking(request, attempt), cfg, from, hintsBytes)
 				if err != nil {
 					t.Fatal(err)
 				}
-				err, wire := agentProviderRequestPrepareTADW(selected, false, prepared, window.Transcript, cfg)
+				err, wire := agentProviderRequestPrepareTADW(selected, false, prepared, window.Transcript, cfg, hints)
 				if err != nil {
 					t.Fatal(err)
 				}
 				content, _ := tadwProviderUserContent(t, wire)
-				if !strings.HasPrefix(content, historyXML) || content != window.Transcript.String() {
+				if !strings.HasPrefix(content, historyXML) || content != window.Transcript.String()+tadwTestHintsXML(t, selected, hints) {
 					t.Fatal("history or whole-event order changed")
 				}
 				if attempt == 40 {
-					if from != window.FromEventID || !strings.HasPrefix(content, prior) {
-						t.Fatal("fitting growth lost its prefix")
+					if from != window.FromEventID || !strings.HasPrefix(content, prior) || strings.HasPrefix(content, priorWire) {
+						t.Fatal("fitting growth must preserve the event prefix, replacing only its old hints suffix")
 					}
 					early = wire
 				}
 				if attempt == 60 && (window.FromEventID == "" || window.FromEventID == from || strings.HasPrefix(content, prior)) {
 					t.Fatal("fixture did not roll")
 				}
-				from, prior = window.FromEventID, content
+				from, prior, priorWire = window.FromEventID, window.Transcript.String(), content
 			}
 			// Reconstruct an earlier thinking attempt after a later rollover. Its own
 			// empty boundary still yields the old full tooling, not the latest suffix.
-			restored, err := loadTADWContextFrom(context.Background(), store, initial, request, selected.Ref, tadwToolingThinking(request, 40), cfg, "")
+			restored, err := loadTADWContextFrom(context.Background(), store, initial, request, selected.Ref, tadwToolingThinking(request, 40), cfg, "", hintsBytes)
 			if err != nil {
 				t.Fatal(err)
 			}
-			err, replayed := agentProviderRequestPrepareTADW(selected, false, prepared, restored, cfg)
+			err, replayed := agentProviderRequestPrepareTADW(selected, false, prepared, restored, cfg, hints)
 			a, _ := json.Marshal(early.body())
 			b, _ := json.Marshal(replayed.body())
 			if err != nil || string(a) != string(b) {
@@ -424,11 +436,16 @@ func TestTADWProviderRequestDBOSStateRemainsMinimal(t *testing.T) {
 	t.Setenv("DBOS__VMID", "tadw-provider-test-worker")
 	store, initial, cfg, request, _ := tadwToolingDB(t)
 	selected := tadwProviderDatabaseAgent(t, store, request)
+	hints, err := loadTADWRequestHints(context.Background(), store, request, selected.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hintsBytes := int64(len(tadwTestHintsXML(t, selected, hints)))
 	full, err := loadTADWContext(context.Background(), store, initial, request, selected.Ref, tadwToolingThinking(request, 40), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budget := full.ToolingBytes()
+	budget := full.ToolingBytes() + hintsBytes
 	ctx, err := dbos.NewContext(context.Background(), dbos.Config{AppName: "tadw-provider-test", ApplicationVersion: "tadw-provider-v1", SQLiteSystemDB: store.DB})
 	if err != nil {
 		t.Fatal(err)
@@ -448,11 +465,11 @@ func TestTADWProviderRequestDBOSStateRemainsMinimal(t *testing.T) {
 		prepared := tadwPreparedHistory{Agent: selected.Ref, Scope: scope, History: history}
 		from := ""
 		for _, attempt := range []int{11, 40, 60} {
-			window, err := checkpointTADWTooling(ctx, store, history, request, selected.Ref, tadwToolingThinking(request, attempt), limits, from)
+			window, err := checkpointTADWTooling(ctx, store, history, request, selected.Ref, tadwToolingThinking(request, attempt), limits, from, hintsBytes)
 			if err != nil {
 				return false, err
 			}
-			err, wire := agentProviderRequestPrepareTADW(selected, false, prepared, window.Transcript, limits)
+			err, wire := agentProviderRequestPrepareTADW(selected, false, prepared, window.Transcript, limits, hints)
 			if err != nil {
 				return false, err
 			}

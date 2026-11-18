@@ -9,15 +9,15 @@ import (
 )
 
 // The conversation is one user message containing history XML followed by
-// retained tooling XML, with no added envelope/separator or native tool blocks.
-// Bump this internal salt if that provider-input packaging changes.
-const tadwProviderConversationVersion = "tadw-single-user-xml-v1"
+// retained tooling XML and a trailing request-orientation hints block. Event
+// fragments remain unchanged. Bump this salt when provider packaging changes.
+const tadwProviderConversationVersion = "tadw-single-user-xml-v2"
 
 // agentProviderRequestPrepareTADW assembles one attempt's wire request.
 // The inputs must come from history preparation and request-tooling assembly.
 // It does not select/roll windows, hydrate/render events, access DBOS/storage,
 // send requests or publish hints. Treat selected as immutable during this call.
-func agentProviderRequestPrepareTADW(selected *database.WorkspaceAgentModel, projectChat bool, prepared tadwPreparedHistory, transcript tadwTranscript, limits tadwWindowConfig) (error, agentProviderRequest) {
+func agentProviderRequestPrepareTADW(selected *database.WorkspaceAgentModel, projectChat bool, prepared tadwPreparedHistory, transcript tadwTranscript, limits tadwWindowConfig, hints tadwRequestHints) (error, agentProviderRequest) {
 	scope, request, err := tadwHistoryProviderTemplate(prepared.Scope.Session, selected, projectChat)
 	if err != nil {
 		return err, agentProviderRequest{}
@@ -25,7 +25,14 @@ func agentProviderRequestPrepareTADW(selected *database.WorkspaceAgentModel, pro
 	if prepared.Agent != selected.Ref || scope != prepared.Scope {
 		return fmt.Errorf("prepare TADW provider request: selected configuration does not match prepared history"), agentProviderRequest{}
 	}
-	budget, err := tadwFixedHistoryBudget(prepared.History, limits)
+	suffix, err := renderTADWRequestHints(selected, hints)
+	if err != nil {
+		return err, agentProviderRequest{}
+	}
+	if hints.Request.Session != prepared.Scope.Session {
+		return fmt.Errorf("prepare TADW provider request: hints belong to another session"), agentProviderRequest{}
+	}
+	budget, err := tadwReservedToolingBudget(prepared.History, limits, int64(len(suffix)))
 	if err != nil {
 		return err, agentProviderRequest{}
 	}
@@ -39,8 +46,8 @@ func agentProviderRequestPrepareTADW(selected *database.WorkspaceAgentModel, pro
 		}
 		seen[fragment.ID] = true
 	}
-	if len(transcript.Tooling) == 0 {
-		return fmt.Errorf("prepare TADW provider request: tooling must include the owning request"), agentProviderRequest{}
+	if len(transcript.Tooling) == 0 || transcript.Tooling[0].ID != hints.Request.Id {
+		return fmt.Errorf("prepare TADW provider request: tooling must begin with the owning request"), agentProviderRequest{}
 	}
 	var used int64
 	for _, fragment := range transcript.Tooling {
@@ -56,7 +63,7 @@ func agentProviderRequestPrepareTADW(selected *database.WorkspaceAgentModel, pro
 		used += fragment.Bytes()
 		seen[fragment.ID] = true
 	}
-	message := openAICompatibleMessage{Role: "user", Content: transcript.String()}
+	message := openAICompatibleMessage{Role: "user", Content: transcript.String() + suffix}
 	if request.Chat != nil {
 		request.Chat.Messages = append(request.Chat.Messages, message)
 	} else {

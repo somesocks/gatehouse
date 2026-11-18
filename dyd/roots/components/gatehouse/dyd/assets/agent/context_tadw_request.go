@@ -104,7 +104,15 @@ func (runtime *SessionEventReplyRuntime) checkpointRequestTADWTooling(ctx dbos.C
 		if err != nil {
 			return "", err
 		}
-		window, err := loadTADWToolingWindow(step, runtime.store, history, state.request, selected.Ref, thinking.Ref, *state.choice.TADW, state.boundary)
+		hints, err := loadTADWRequestHints(step, runtime.store, state.request, selected.Ref)
+		if err != nil {
+			return "", err
+		}
+		suffix, err := renderTADWRequestHints(selected, hints)
+		if err != nil {
+			return "", err
+		}
+		window, err := loadTADWToolingWindow(step, runtime.store, history, state.request, selected.Ref, thinking.Ref, *state.choice.TADW, state.boundary, int64(len(suffix)))
 		return window.FromEventID, err
 	}, dbos.WithStepName(tadwToolingCheckpointName))
 	if err == nil {
@@ -128,10 +136,18 @@ func (runtime *SessionEventReplyRuntime) renderRequestTADW(ctx context.Context, 
 	if err != nil {
 		return agentProviderRequest{}, err
 	}
-	transcript, err := loadTADWContextFrom(ctx, runtime.store, history, state.request, selected.Ref, thinking.Ref, *state.choice.TADW, state.boundary)
+	hints, err := loadTADWRequestHints(ctx, runtime.store, state.request, selected.Ref)
 	if err != nil {
 		return agentProviderRequest{}, err
 	}
-	err, request := agentProviderRequestPrepareTADW(selected, projectChat, tadwPreparedHistory{Agent: selected.Ref, Scope: scope, History: history}, transcript, *state.choice.TADW)
+	suffix, err := renderTADWRequestHints(selected, hints)
+	if err != nil {
+		return agentProviderRequest{}, err
+	}
+	transcript, err := loadTADWContextFrom(ctx, runtime.store, history, state.request, selected.Ref, thinking.Ref, *state.choice.TADW, state.boundary, int64(len(suffix)))
+	if err != nil {
+		return agentProviderRequest{}, err
+	}
+	err, request := agentProviderRequestPrepareTADW(selected, projectChat, tadwPreparedHistory{Agent: selected.Ref, Scope: scope, History: history}, transcript, *state.choice.TADW, hints)
 	return request, err
 }

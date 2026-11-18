@@ -26,13 +26,13 @@ func (err *tadwToolingBudgetError) Error() string {
 // tooling before the current thinking request. It never reselects/re-renders
 // history, checkpoints context, or silently trims tooling.
 func loadTADWContext(ctx context.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig) (tadwTranscript, error) {
-	return loadTADWContextFrom(ctx, store, history, request, agent, thinking, config, "")
+	return loadTADWContextFrom(ctx, store, history, request, agent, thinking, config, "", 0)
 }
 
 // loadTADWContextFrom is strict checkpoint rehydration: it never rolls a recorded
 // boundary forward if changed data/configuration no longer fits.
-func loadTADWContextFrom(ctx context.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig, from string) (tadwTranscript, error) {
-	budget, err := tadwFixedHistoryBudget(history, config)
+func loadTADWContextFrom(ctx context.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig, from string, reservedBytes int64) (tadwTranscript, error) {
+	budget, err := tadwReservedToolingBudget(history, config, reservedBytes)
 	if err != nil {
 		return tadwTranscript{}, err
 	}
@@ -101,8 +101,8 @@ func (source *tadwPinnedRequestSource) Err() error                { return sourc
 // loadTADWToolingWindow grows the prior retained window, rolling only on a byte
 // overflow. Both the fit check and newest-first rollover share one read snapshot.
 // It is deliberately separate from strict checkpoint rehydration.
-func loadTADWToolingWindow(ctx context.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig, from string) (tadwToolingWindow, error) {
-	budget, err := tadwFixedHistoryBudget(history, config)
+func loadTADWToolingWindow(ctx context.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig, from string, reservedBytes int64) (tadwToolingWindow, error) {
+	budget, err := tadwReservedToolingBudget(history, config, reservedBytes)
 	if err != nil {
 		return tadwToolingWindow{}, err
 	}

@@ -55,8 +55,8 @@ check, and an unobservable provider-side routing/model change cannot be detected
 - `tadw-history-preparation-v1`.
 - The existing `tadw-history-v1` selection/hint algorithm identifier.
 - `tadw-flat-xml-v1`, an internal transcript-format compatibility salt.
-- `tadw-single-user-xml-v1`, the provider conversation-packaging salt introduced
-  by the [provider-input adapter](tadw-provider-input.md).
+- `tadw-single-user-xml-v2`, the provider conversation-packaging salt including
+  the trailing orientation block from the [provider-input adapter](tadw-provider-input.md).
 - The **actual static provider wire body**, obtained by calling
   `agentProviderRequestPrepare(selected, projectChat, nil)` and then `.body()`.
 

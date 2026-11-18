@@ -24,13 +24,13 @@ func TestTADWPublicationScopeMatchesSentWire(t *testing.T) {
 				name += "/empty-prompt"
 			}
 			t.Run(name, func(t *testing.T) {
-				selected, prepared, transcript, limits := tadwProviderFixture(t, protocol)
+				selected, prepared, transcript, limits, hints := tadwProviderFixture(t, protocol)
 				if emptyPrompt {
 					text := ""
 					selected.SystemPromptReplacement = &text
 					prepared.Scope = tadwPreparationScope(t, prepared.Scope.Session, selected, false)
 				}
-				err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, limits)
+				err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, limits, hints)
 				if err != nil {
 					t.Fatal(err)
 				}

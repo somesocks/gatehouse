@@ -351,11 +351,11 @@ func TestTADWToolingWindowPinsRequestAcrossOrderingAndReplay(t *testing.T) {
 		t.Fatal("request is not pinned first", full, err)
 	}
 	history, cfg = tadwTideBudget(history, full.ToolingBytes()-1)
-	selected, err := loadTADWToolingWindow(context.Background(), store, history, request, agent, thinking, cfg, "")
+	selected, err := loadTADWToolingWindow(context.Background(), store, history, request, agent, thinking, cfg, "", 0)
 	if err != nil || selected.Transcript.Tooling[0].ID != request.Id || selected.FromEventID == "" {
 		t.Fatal(selected, err)
 	}
-	recovered, err := loadTADWContextFrom(context.Background(), store, history, request, agent, thinking, cfg, selected.FromEventID)
+	recovered, err := loadTADWContextFrom(context.Background(), store, history, request, agent, thinking, cfg, selected.FromEventID, 0)
 	if err != nil || !reflect.DeepEqual(recovered, selected.Transcript) {
 		t.Fatal("fresh/replay request position differs", recovered, err)
 	}

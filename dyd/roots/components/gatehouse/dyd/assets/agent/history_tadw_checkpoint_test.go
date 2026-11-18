@@ -478,7 +478,7 @@ func assertTADWDBOSPayloadAbsent(t *testing.T, store *database.Store) {
 					text = string(bytes)
 				}
 				decoded, _ := base64.StdEncoding.DecodeString(text)
-				for _, marker := range []string{"TADW_PRIVATE_PAYLOAD", "TADW_PRIVATE_TOOLING", "<message "} {
+				for _, marker := range []string{"TADW_PRIVATE_PAYLOAD", "TADW_PRIVATE_TOOLING", "<message ", "<hints>"} {
 					if strings.Contains(text, marker) || strings.Contains(string(decoded), marker) {
 						t.Fatalf("durable payload/XML in %s.%s", table, columns[i])
 					}

@@ -71,7 +71,7 @@ func TestTADWToolingCheckpointProcess(t *testing.T) {
 		history, cfg := tadwTideBudget(history, budget)
 		from := ""
 		for index, attempt := range []int{11, 40, 60, 80, 90} {
-			window, err := checkpointTADWTooling(ctx, store, history, request, model.WorkspaceAgentRef{Workspace: request.Session.Workspace, Id: "agent"}, tadwToolingThinking(request, attempt), cfg, from)
+			window, err := checkpointTADWTooling(ctx, store, history, request, model.WorkspaceAgentRef{Workspace: request.Session.Workspace, Id: "agent"}, tadwToolingThinking(request, attempt), cfg, from, 0)
 			if err != nil {
 				return false, err
 			}
@@ -179,7 +179,7 @@ func TestTADWToolingCheckpointCrashRecovery(t *testing.T) {
 			var expected []tadwTideExpectation
 			rollovers := 0
 			for _, attempt := range []int{11, 40, 60, 80, 90} {
-				window, err := loadTADWToolingWindow(context.Background(), store, initial, request, agent, ref(attempt), cfg, from)
+				window, err := loadTADWToolingWindow(context.Background(), store, initial, request, agent, ref(attempt), cfg, from, 0)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -238,7 +238,7 @@ func TestTADWToolingCheckpointCrashRecovery(t *testing.T) {
 				if _, err := store.Exec(`UPDATE gatehouse_session_events SET payload=? WHERE id=?`, string(payload), expected[1].From); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := loadTADWToolingWindow(context.Background(), store, initial, request, agent, ref(40), cfg, expected[1].From); err != nil {
+				if _, err := loadTADWToolingWindow(context.Background(), store, initial, request, agent, ref(40), cfg, expected[1].From, 0); err != nil {
 					t.Fatal("growth case cannot distinguish selection from replay", err)
 				}
 			}

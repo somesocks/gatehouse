@@ -16,11 +16,15 @@ history again. Configuration must satisfy the existing three-limit invariant:
 
 ```text
 0 < history_min_bytes <= history_max_bytes <= context_max_bytes
-B = context_max_bytes - actual_history_bytes
+B = context_max_bytes - actual_history_bytes - reserved_hints_bytes
 ```
 
-Stored window accounting must agree. These checks are not a complete
-configuration/rendering-profile fingerprint; the caller owns that consistency.
+Stored history-window accounting still records `context_max_bytes` minus history
+bytes. The normal runtime additionally reserves the exact provider-orientation
+hints size, using the same reservation for fresh selection and strict replay.
+Standalone event-only assembly reserves zero bytes. These checks are not a
+complete configuration/rendering-profile fingerprint; the caller owns that
+consistency.
 
 The prompt contains fixed history, then the owning `agent.request`, then retained
 tool events in ascending `(created_at, id)` order. The request is pinned first,
@@ -29,12 +33,12 @@ Actual parent IDs are preserved when parents lie outside the window. There is no
 extra envelope, sorting of request/result blocks, or splitting of XML fragments.
 History slice elements are copied for ownership; immutable XML strings are reused.
 The [provider-input adapter](tadw-provider-input.md) places this
-assembled transcript in one user message without additional XML or native tool
-conversation blocks.
+assembled transcript in one user message followed by a small request-orientation
+`<hints>` block. It does not add native tool conversation blocks or alter events.
 
 ## High-tide policy: drop the old prefix, no lower tier
 
-`loadTADWToolingWindow(..., from)` is fresh selection. `from` is the prior window's
+`loadTADWToolingWindow(..., from, reservedBytes)` is fresh selection. `from` is the prior window's
 inclusive first retained **tool event** ID; empty means nothing has been dropped.
 The owning request is always retained independently of this boundary.
 
@@ -71,10 +75,10 @@ reference to a dropped request. There are no stubs, summaries or lower-tier text
 
 - `loadTADWContext(...)` strictly renders all eligible tooling; it still errors on
   overflow and does not invoke rollover implicitly.
-- `loadTADWContextFrom(..., from)` strictly renders a recorded retained window.
+- `loadTADWContextFrom(..., from, reservedBytes)` strictly renders a recorded retained window.
   Missing, foreign, omitted-kind or future boundaries fail explicitly. If changed
   data no longer fits, it errors rather than advancing the recorded boundary.
-- `loadTADWToolingWindow(..., from)` may advance the prior boundary on fresh
+- `loadTADWToolingWindow(..., from, reservedBytes)` may advance the prior boundary on fresh
   execution, using the policy above.
 
 All failures return an empty result. The typed budget error reports the hard
@@ -134,7 +138,7 @@ return path, including cancellation.
 
 ## DBOS: one small boundary decision per thinking attempt
 
-`checkpointTADWTooling(..., from)` belongs once per thinking attempt at a stable
+`checkpointTADWTooling(..., from, reservedBytes)` belongs once per thinking attempt at a stable
 workflow position. The caller carries the returned boundary to the next attempt.
 
 - The named DBOS step `gatehouse.tadw-tooling-window` returns **only the boundary

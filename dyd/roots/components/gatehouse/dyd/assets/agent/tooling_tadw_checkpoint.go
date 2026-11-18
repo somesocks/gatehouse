@@ -19,13 +19,13 @@ const tadwToolingCheckpointName = "gatehouse.tadw-tooling-window"
 // Only the boundary string is the step result, never XML, event payloads, or the
 // initial-history ID list. Fresh execution reuses its selected buffer. Replay
 // renders the recorded window without rerunning rollover policy.
-func checkpointTADWTooling(ctx dbos.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig, from string) (tadwToolingWindow, error) {
-	if _, err := tadwFixedHistoryBudget(history, config); err != nil {
+func checkpointTADWTooling(ctx dbos.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig, from string, reservedBytes int64) (tadwToolingWindow, error) {
+	if _, err := tadwReservedToolingBudget(history, config, reservedBytes); err != nil {
 		return tadwToolingWindow{}, err
 	}
 	var fresh *tadwToolingWindow
 	boundary, err := dbos.RunAsStep(ctx, func(stepCtx context.Context) (string, error) {
-		selected, err := loadTADWToolingWindow(stepCtx, store, history, request, agent, thinking, config, from)
+		selected, err := loadTADWToolingWindow(stepCtx, store, history, request, agent, thinking, config, from, reservedBytes)
 		if err != nil {
 			return "", err
 		}
@@ -38,7 +38,7 @@ func checkpointTADWTooling(ctx dbos.Context, store *database.Store, history tadw
 	if fresh != nil {
 		return *fresh, nil
 	}
-	transcript, err := loadTADWContextFrom(ctx, store, history, request, agent, thinking, config, boundary)
+	transcript, err := loadTADWContextFrom(ctx, store, history, request, agent, thinking, config, boundary, reservedBytes)
 	if err != nil {
 		return tadwToolingWindow{}, fmt.Errorf("rehydrate TADW tooling: %w", err)
 	}

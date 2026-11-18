@@ -7,25 +7,43 @@ This adapter builds bodies; it does not send them or publish shared hints.
 
 ## One user message, flat semantic XML
 
-`agentProviderRequestPrepareTADW(selected, projectChat, prepared, transcript, limits)`
+`agentProviderRequestPrepareTADW(selected, projectChat, prepared, transcript, limits, hints)`
 accepts:
 
 - The resolved selected workspace agent, with invocation-local overrides applied.
 - `tadwPreparedHistory` from the selected-agent history preparation adapter.
 - The complete retained `tadwTranscript` from request-tooling assembly/checkpointing.
 - The existing transcript byte limits.
+- Request/message references reconstructed from the actual owning request.
 
 The conversation contains exactly **one user message** whose content is:
 
 ```text
-fixed history fragments + retained tooling fragments
+fixed history fragments + retained tooling fragments + request hints
 ```
 
-The adapter concatenates their existing XML strings in order, including existing
-trailing newlines. It adds no envelope, labels, separators, summaries or extra
-newline. It does not parse XML, reconstruct trees, hydrate files, render events,
-roll windows or synthesize assistant/tool messages. Actual parent references,
-escaping, file metadata and empty self-closing results remain exactly as rendered.
+The adapter concatenates the existing event XML strings in order, including their
+trailing newlines, then appends one orientation block:
+
+```xml
+<hints>
+<agent alias="luna-high" id="wag_..." />
+<request id="sev_AGENT_REQUEST" message="sev_USER_MESSAGE" />
+<tooling-start id="sev_AGENT_REQUEST" />
+Answer the identified message as this agent. Other conversation events are context, not new requests. Events from tooling-start onward record this request's retained execution; use its tool results as work already performed.
+</hints>
+```
+
+`request.id` is the internal `agent.request`; `request.message` is its actual
+parent message, the task to answer. `tooling-start.id` points to the pinned owning
+request, not the first retained tool event or a timestamp. It stays valid across
+rollover. Agent identity comes from the selected binding, and attribute values
+are XML-escaped. The hints are framing, not a synthetic application event.
+
+Event fragments and their actual relationships are unchanged. The adapter does
+not parse XML, reconstruct trees, hydrate files, render events, roll windows or
+synthesize assistant/tool messages. It rejects a tooling prefix that does not
+begin with the identified owning request.
 
 Native Lisp tools and final-response schemas remain declared in the provider
 request, using the existing preparer's definitions. Past tool calls/results are
@@ -63,9 +81,14 @@ rather than quietly using stale publication keys. There is no automatic re-keyin
 history reselection or scope mutation. The caller must resolve configuration drift
 at the request-lifecycle layer. Treat `selected` as immutable during assembly.
 
-The profile now also includes `tadw-single-user-xml-v1`, the internal conversation-
-packaging version. This changes profiles derived by the previous preparation-only
-helper, making earlier hint namespaces cold; no table/data migration is required.
+The profile includes `tadw-single-user-xml-v2`, the internal conversation-packaging
+version for the trailing orientation block. Earlier alignment-hint namespaces
+become cold; no table/data migration is required. The packaging version also
+enters each request's recorded compatibility guard. Finish active v1 requests
+before upgrading: an unfinished v1 request that needs fresh preparation under v2
+fails the compatibility check rather than silently changing its context format
+or byte reservation. Already-committed provider decisions still recover without
+preparation or another send.
 Neither growing XML nor event lists enter the fingerprint. Bump the packaging
 salt if role, envelope or message-boundary semantics change incompatibly.
 
@@ -87,27 +110,37 @@ and order**, not merely have matching IDs or byte counts.
 It also requires nonempty tooling, nonempty/unique IDs and fragments, no overlap
 with history, and valid UTF-8 XML strings. UTF-8 validation prevents JSON encoding
 from silently replacing invalid bytes. Tooling must include the pinned owning
-request according to the assembler contract. The adapter checks nonemptiness but
-does not reparse XML to prove event kind, authorship, request ownership or the
-thinking cutoff; those remain the database cursor/assembler's responsibility.
+request according to the assembler contract. The adapter verifies that the first
+tooling fragment ID matches the hints' owning request and that hint references
+share the prepared session. It does not reparse XML to prove event kind,
+authorship, parent relationships or the thinking cutoff; those remain the
+database reader/assembler's responsibility.
 
-Each tooling fragment is charged against `context_max_bytes - fixed_history_bytes`
+Each tooling fragment is charged against
+`context_max_bytes - fixed_history_bytes - hints_bytes`
 with subtract-before-add arithmetic. Exact fit is accepted, including safe
 `INT64_MAX` configurations. Overflow returns the existing typed
 `*tadwToolingBudgetError`; every failure returns an empty provider request, not a
 successful partial body. This is strict assembly, not a hidden rollover policy.
 
-Limits count exact rendered transcript UTF-8 bytes. They do **not** count system
-prompts, schemas, transport JSON escaping or model tokens. JSON escaping is a
+`context_max_bytes` counts exact rendered event XML plus the trailing hints'
+UTF-8 bytes. The runtime reserves the exact hints size before both tooling-window
+selection and strict reconstruction; history accounting remains unchanged. An
+oversized hints block or owning request fails rather than silently omitting it.
+Limits do **not** count system prompts, schemas, transport JSON escaping or model tokens. JSON escaping is a
 transport layer: decoding the content field yields the exact XML. The adapter
 does not double-escape semantic XML.
 
 ## Growth, rollover and durability
 
 With fixed history/configuration and an unchanged tooling boundary, new events
-append to the same user content. Existing content is a byte prefix of the grown
-content. Rollover drops the old tooling prefix but preserves history and the
-owning request; the user role/message boundary stays unchanged.
+append after the previous event prefix and before the trailing hints. The earlier
+**event prefix** remains a byte prefix of the grown content; the earlier complete
+input, including its old hints suffix, does not. This preserves the long reusable
+history/tooling prefix, not caching of the small trailing block. Rollover drops
+the old tooling prefix but preserves history and the owning request; the hints
+still identify that request and its parent, and the user role/message boundary
+stays unchanged.
 
 This is an alignment property, not proof of provider KV reuse. Tokenization can
 change around an append boundary, providers serialize messages/tools internally,
@@ -125,7 +158,9 @@ never publishes/touches shared hints and does not read file content or credentia
 from a provider/keychain. Credential compatibility hashing uses already-selected
 encrypted configuration through the existing opaque fingerprint helper.
 
-The output contains no hint metadata or credentials. The normal execution
+Orientation hints are derived anew per preparation and are not checkpointed.
+They are separate from database-backed cache-alignment hints; the output contains
+no alignment-hint metadata or credentials. The normal execution
 callback derives publication identity locally from the selected snapshot and sent
 static wire fields, publishing only after successful provider use and the
 application-decision commit. That hook is outside this pure adapter. See [runtime publication](context-cache-hints.md#runtime-publication).
@@ -140,7 +175,8 @@ drift, malformed/inconsistent buffers, duplicates/overlap, exact-fit/overflow an
 `INT64_MAX` arithmetic.
 
 SQLite integration tests grow tooling to an exact fit, then roll over, preserving
-history and testing byte-prefix growth for all three protocols. Reconstruction of
+history and testing event-prefix growth with a replaced hints suffix for all
+three protocols. Reconstruction of
 an earlier thinking attempt after later rollover must yield an identical wire
 body. A real DBOS workflow builds bodies across three tooling checkpoints but
 persists only IDs, boundaries and boolean simulated thinking results. Durable

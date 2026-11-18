@@ -159,8 +159,8 @@ func TestLoadTADWToolingWindowGrowthRolloverAndRecovery(t *testing.T) {
 	var priorFrom string
 	for _, attempt := range []int{11, 40, 60} {
 		thinking := tadwToolingThinking(request, attempt)
-		strict, strictErr := loadTADWContextFrom(context.Background(), store, initial, request, agent, thinking, cfg, from)
-		got, err := loadTADWToolingWindow(context.Background(), store, initial, request, agent, thinking, cfg, from)
+		strict, strictErr := loadTADWContextFrom(context.Background(), store, initial, request, agent, thinking, cfg, from, 0)
+		got, err := loadTADWToolingWindow(context.Background(), store, initial, request, agent, thinking, cfg, from, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,7 +176,7 @@ func TestLoadTADWToolingWindowGrowthRolloverAndRecovery(t *testing.T) {
 			unbounded.ContextMaxBytes = cfg.ContextMaxBytes + 10000
 			history := initial
 			history.Window.ToolingBudgetBytes = unbounded.ContextMaxBytes - history.Window.HistoryBytes
-			candidate, err := loadTADWContextFrom(context.Background(), store, history, request, agent, thinking, unbounded, from)
+			candidate, err := loadTADWContextFrom(context.Background(), store, history, request, agent, thinking, unbounded, from, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -185,7 +185,7 @@ func TestLoadTADWToolingWindowGrowthRolloverAndRecovery(t *testing.T) {
 				t.Fatal("incorrect rollover", got, want)
 			}
 		}
-		recovered, err := loadTADWContextFrom(context.Background(), store, initial, request, agent, thinking, cfg, got.FromEventID)
+		recovered, err := loadTADWContextFrom(context.Background(), store, initial, request, agent, thinking, cfg, got.FromEventID, 0)
 		if err != nil || !reflect.DeepEqual(recovered, got.Transcript) {
 			t.Fatal("recorded window did not rehydrate", recovered, err)
 		}
@@ -198,7 +198,7 @@ func TestLoadTADWToolingWindowGrowthRolloverAndRecovery(t *testing.T) {
 	if _, err := store.Exec(`UPDATE gatehouse_session_events SET payload='invalid JSON' WHERE id=?`, tadwToolingThinking(request, 20).Id); err != nil {
 		t.Fatal(err)
 	}
-	got, err := loadTADWToolingWindow(context.Background(), store, initial, request, agent, tadwToolingThinking(request, 60), cfg, from)
+	got, err := loadTADWToolingWindow(context.Background(), store, initial, request, agent, tadwToolingThinking(request, 60), cfg, from, 0)
 	if err != nil || got.FromEventID != from {
 		t.Fatal("dropped prefix decoded/reintroduced", got, err, priorFrom)
 	}
@@ -252,7 +252,7 @@ func TestLoadTADWToolingWindowLimitsAndFailures(t *testing.T) {
 				cancel()
 			}
 			initial, cfg = tadwTideBudget(initial, budget)
-			got, err := loadTADWToolingWindow(ctx, store, initial, request, agent, thinking, cfg, from)
+			got, err := loadTADWToolingWindow(ctx, store, initial, request, agent, thinking, cfg, from, 0)
 			if name == "exact" || name == "large-older" {
 				if err != nil || got.Transcript.Bytes() > cfg.ContextMaxBytes {
 					t.Fatal(got, err)

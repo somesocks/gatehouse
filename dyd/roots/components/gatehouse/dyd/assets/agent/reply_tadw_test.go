@@ -358,10 +358,18 @@ func TestTADWNormalReplyToolingAndRetry(t *testing.T) {
 			mu.Lock()
 			requests := append([][]byte(nil), bodies...)
 			mu.Unlock()
+			if outcome.Parent == nil {
+				t.Fatal("reply lost its owning request")
+			}
+			requestHint := fmt.Sprintf(`<request id="%s" message="%s" />`, outcome.Parent.Id, f.message.Ref.Id)
+			toolingHint := fmt.Sprintf(`<tooling-start id="%s" />`, outcome.Parent.Id)
 			for index, body := range requests {
 				content := liveUserContent(t, body)
 				if !strings.Contains(content, liveTADWMarker) || strings.Count(content, "<agent.request ") != 1 || len([]byte(content)) > 3200 {
 					t.Fatalf("attempt %d invalid transcript: %s", index, content)
+				}
+				if strings.Count(content, "<hints>") != 1 || !strings.HasSuffix(content, "</hints>\n") || !strings.Contains(content, requestHint) || !strings.Contains(content, toolingHint) {
+					t.Fatalf("attempt %d lost its actual message/request/tooling orientation: %s", index, content)
 				}
 				if index > 1 && !strings.Contains(content, fmt.Sprint("TADW_PRIVATE_TOOL_", index-1, "_")) {
 					t.Fatalf("attempt %d lost newest tooling: %s", index, content)

@@ -47,8 +47,9 @@ validates the selected branch, and serializes effective configuration as flat JS
 in the existing model `compaction` column. No database schema change is required.
 Database model create/update validates the same effective limits.
 
-TADW counts exact rendered UTF-8 history/tooling bytes. These are not token limits
-or a bound on the entire JSON request, system prompt or tool schemas.
+TADW counts exact rendered UTF-8 history/tooling bytes and its trailing
+request-orientation hints. These are not token limits or a bound on the entire
+JSON request, system prompt or tool schemas.
 
 ## Request selection and replay
 
@@ -83,8 +84,11 @@ assembles the actual request after waiting. Each HTTP retry follows the same
 preparation path. Bodies and rendered fragments belong to their assembly/attempt;
 DBOS stores initial IDs and small decisions/references, not transcript bodies.
 
-TADW presents one user message containing history XML followed by retained tooling
-XML. Native Lisp tools and final-response schemas remain declared normally.
+TADW presents one user message containing history XML, retained tooling XML and a
+trailing `<hints>` block identifying the agent, message to answer and tooling
+start. The hints' exact bytes are reserved before tooling selection and rendering;
+they are derived from the owning request, not checkpointed or stored as shared
+cache-alignment hints. Native Lisp tools and final-response schemas remain declared normally.
 Incoming tool decisions share general validation with MCMTR; only MCMTR applies
 its native-tool high-tier buffer rule. TADW enforces its history/tooling budgets
 when assembling the next request.
