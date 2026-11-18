@@ -12,52 +12,57 @@ agent_providers:
         - env:OPENAI_API_KEY
 agent_models:
   - alias: openai-luna-low
-    revision: 6
-    provider: openai
-    model: gpt-5.6-luna
-    parameters:
-      reasoning_effort: low
-    compaction:
-      algorithm: mcmtr
-      history_bytes: 196608
-      buffer_bytes: 98304
-    max_turns: 1024
-    max_output_tokens: 16000
-  - alias: openai-luna-low-tadw
-    revision: 1
+    revision: 7
     provider: openai
     model: gpt-5.6-luna
     parameters:
       reasoning_effort: low
     compaction:
       algorithm: tadw
-      context_max_bytes: 262144
-      history_max_bytes: 131072
-      history_min_bytes: 65536
+      context_max_bytes: 196608
+      history_max_bytes: 98304
+      history_min_bytes: 49152
+    max_turns: 1024
+    max_output_tokens: 16000
+  # Retire the test model in existing databases; omission does not disable it.
+  - alias: openai-luna-low-tadw
+    revision: 2
+    enabled: false
+    provider: openai
+    model: gpt-5.6-luna
+    parameters:
+      reasoning_effort: low
+    compaction:
+      algorithm: tadw
+      context_max_bytes: 196608
+      history_max_bytes: 98304
+      history_min_bytes: 49152
     max_turns: 1024
     max_output_tokens: 16000
   - alias: openai-luna-medium
-    revision: 6
+    revision: 7
     provider: openai
     model: gpt-5.6-luna
     parameters:
       reasoning_effort: medium
     compaction:
-      algorithm: mcmtr
-      history_bytes: 196608
-      buffer_bytes: 98304
+      algorithm: tadw
+      context_max_bytes: 196608
+      history_max_bytes: 98304
+      history_min_bytes: 49152
     max_turns: 1024
     max_output_tokens: 16000
   - alias: openai-luna-high
-    revision: 6
+    revision: 7
     provider: openai
     model: gpt-5.6-luna
     parameters:
       reasoning_effort: high
     compaction:
-      algorithm: mcmtr
-      history_bytes: 196608
-      buffer_bytes: 98304
+      algorithm: tadw
+      context_max_bytes: 196608
+      history_max_bytes: 98304
+      history_min_bytes: 49152
     max_turns: 1024
     max_output_tokens: 16000
 storage_providers:
@@ -102,9 +107,11 @@ workspaces:
         model: openai-luna-medium
         revision: 1
         label: GPT 5.6 Luna Medaccepts 
+      # Retire the test bot while preserving its historical attribution.
       - alias: luna-low-tadw
         model: openai-luna-low-tadw
-        revision: 1
+        revision: 2
+        enabled: false
         label: GPT 5.6 Luna Low TADW
       - alias: luna-low
         model: openai-luna-low
