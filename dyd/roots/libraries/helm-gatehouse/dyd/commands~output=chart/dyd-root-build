@@ -52,7 +52,7 @@ EOF
 
 for config_field in \
 	api_version database kind path workspaces alias name enabled groups members \
-	principal grants role revision group agents model label system_prompt prelude \
+	principal grants role revision agents model label system_prompt prelude \
 	default rate_limits workspace_input minimum_balance maximum_balance refill_per_minute \
 	workspace_output user_input user_output storage_providers provider priority principals \
 	identities key verifiers system_grants keychains id sources agent_providers protocol \
