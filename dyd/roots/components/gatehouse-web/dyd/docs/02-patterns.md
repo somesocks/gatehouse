@@ -312,7 +312,7 @@ and the chat name truncates as needed.
 
 The feed consumes `/events/branch`, not the execution transcript tree. A branch
 contains conversational events sharing one actual parent; the root branch has no
-parent. Entries show two slightly indented reply previews. A third, metadata-only
+parent. Entries show three slightly indented reply previews. A fourth, metadata-only
 candidate signals additional replies; it is not another rendered preview. Agent
 outcomes and owned input/approval controls are supplied independently of those
 preview slots. The UI shows each agent's answer or working, waiting, cancelling,

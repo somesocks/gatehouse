@@ -26,7 +26,7 @@ The response follows the generated `ConversationBranch` API schema:
   `entries`, does not consume a page slot, and is returned on every thread page,
   including empty branches. Clients can render it as pinned thread context.
 - `entries`: branch members. Each contains a public transcript `event`, up to
-  two `previews`, and `has_more_replies`.
+  three `previews`, and `has_more_replies`.
 - `agent_requests`: state for each agent request visible as a branch member or
   preview. Each contains its `request` reference, `state`, interaction references
   and an optional terminal `outcome` event.
@@ -44,8 +44,8 @@ Conversational members are `message.text`, `agent.request`, `agent.success`,
 execution events are not conversational members.
 
 For each branch member other than an agent/input/approval request, selection
-fetches at most three conversational direct-child candidates. Only the first
-two are hydrated and expanded. The third sets `has_more_replies`; it is not
+fetches at most four conversational direct-child candidates. Only the first
+three are hydrated and expanded. The fourth sets `has_more_replies`; it is not
 returned as a preview or expanded into outcomes/interactions. Agent requests
 have their terminal outcome loaded separately rather than spending another
 preview slot on it. Input/approval requests expose resolution state separately.

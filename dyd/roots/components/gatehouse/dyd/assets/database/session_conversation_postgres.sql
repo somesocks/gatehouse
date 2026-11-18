@@ -40,11 +40,11 @@ previews AS MATERIALIZED (
   WHERE b.kind NOT IN ('agent.request','input.request','approval.request')
     AND p.workspace=@workspace AND p.session=@session AND p.parent=b.id
     AND p.kind IN ('message.text','agent.request','agent.success','agent.failure','input.request','approval.request')
-  ORDER BY p.created_at,p.id LIMIT 3
+  ORDER BY p.created_at,p.id LIMIT 4
  ) AS c
 ),
 visible AS MATERIALIZED (
- SELECT id,kind FROM page UNION SELECT id,kind FROM previews WHERE slot<3
+ SELECT id,kind FROM page UNION SELECT id,kind FROM previews WHERE slot<4
 ),
 requests AS MATERIALIZED (
  SELECT v.id,e.payload->>'agent' AS agent
@@ -99,8 +99,8 @@ refs(relation,owner,slot,id,parent,kind,created_at,hydrate) AS MATERIALIZED (
  UNION ALL
  SELECT 'branch-more',NULL,slot,id,parent,kind,created_at,0 FROM branch_ranked WHERE slot>@page_size
  UNION ALL
- SELECT CASE WHEN slot=3 THEN 'preview-more' ELSE 'preview' END,
-        owner,slot,id,parent,kind,created_at,CASE WHEN slot<3 THEN 1 ELSE 0 END FROM previews
+ SELECT CASE WHEN slot=4 THEN 'preview-more' ELSE 'preview' END,
+        owner,slot,id,parent,kind,created_at,CASE WHEN slot<4 THEN 1 ELSE 0 END FROM previews
  UNION ALL
  SELECT 'terminal',owner,0,id,parent,kind,created_at,1 FROM terminals
  UNION ALL

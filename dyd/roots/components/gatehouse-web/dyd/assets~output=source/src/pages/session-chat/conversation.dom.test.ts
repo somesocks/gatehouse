@@ -585,7 +585,7 @@ it.each([false, true])(
   },
 )
 
-it.each([0, 1, 2, 3])(
+it.each([0, 1, 2, 3, 4])(
   "places reply navigation correctly for %i replies",
   async (replyCount) => {
     const base = api()
@@ -599,7 +599,7 @@ it.each([0, 1, 2, 3])(
               {
                 event: first,
                 previews: Array.from(
-                  { length: Math.min(replyCount, 2) },
+                  { length: Math.min(replyCount, 3) },
                   (_, index) =>
                     event(
                       `preview-${index}`,
@@ -608,7 +608,7 @@ it.each([0, 1, 2, 3])(
                       "first",
                     ),
                 ),
-                has_more_replies: replyCount > 2,
+                has_more_replies: replyCount > 3,
               },
               entry(
                 event("other-root", "message.text", {
@@ -636,7 +636,7 @@ it.each([0, 1, 2, 3])(
       ),
     ).not.toBeNull()
     const previews = section.querySelector('[aria-label="Reply previews"]')
-    if (replyCount >= 3) {
+    if (replyCount >= 4) {
       expect(link?.textContent).toBe("See all replies")
       expect(
         section.querySelectorAll(`a[href="${root}?parent=first"]`),
@@ -650,7 +650,7 @@ it.each([0, 1, 2, 3])(
       const previewMessages = [
         ...previews!.querySelectorAll('[data-slot="message"]'),
       ]
-      expect(previewMessages).toHaveLength(Math.min(replyCount, 2))
+      expect(previewMessages).toHaveLength(Math.min(replyCount, 3))
       for (const preview of previewMessages) {
         expect(preview.querySelector("a")).toBeNull()
         expect(preview.querySelector('button[aria-label="Reply"]')).toBeNull()

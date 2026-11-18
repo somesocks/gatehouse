@@ -77,8 +77,8 @@ func testConversationBranch(t *testing.T, store *database.Store, configuration c
 	add("a", "", "message.text", "", text, 0)
 	add("ar", "a", "agent.request", "", request(first), 5)
 	add("human", "a", "message.text", "", text, 5)
-	add("hidden", "a", "agent.request", "", request(second), 5)
-	add("hidden-answer", "hidden", "agent.success", second, text, 20)
+	add("third", "a", "agent.request", "", request(second), 5)
+	add("third-answer", "third", "agent.success", second, text, 20)
 	add("grandchild", "human", "agent.request", "", request(first), 6)
 	add("grandchild-answer", "grandchild", "agent.success", first, text, 20)
 	add("at", "ar", "tool.request", first, map[string]any{"code": "private"}, 10)
@@ -114,18 +114,26 @@ func testConversationBranch(t *testing.T, store *database.Store, configuration c
 		return page
 	}
 	page := get(database.ConversationBranchQuery{Limit: 1})
-	if len(page.Entries) != 1 || page.Entries[0].Event.Ref != refs["a"] || !page.Entries[0].HasMoreReplies || page.NextCursor == "" {
+	if len(page.Entries) != 1 || page.Entries[0].Event.Ref != refs["a"] || page.Entries[0].HasMoreReplies || page.NextCursor == "" {
 		t.Fatalf("first page = %#v", page)
 	}
 	previews := page.Entries[0].Previews
-	if len(previews) != 2 || previews[0].Ref != refs["ar"] || previews[1].Ref != refs["human"] {
+	if len(previews) != 3 || previews[0].Ref != refs["ar"] || previews[1].Ref != refs["human"] || previews[2].Ref != refs["third"] {
 		t.Fatalf("previews = %#v", previews)
 	}
-	if len(page.AgentRequests) != 1 || page.AgentRequests[0].Request != refs["ar"] || page.AgentRequests[0].State != "completed" || page.AgentRequests[0].Outcome == nil || page.AgentRequests[0].Outcome.Ref != refs["answer"] {
+	if len(page.AgentRequests) != 2 || page.AgentRequests[0].Request != refs["ar"] || page.AgentRequests[0].State != "completed" || page.AgentRequests[0].Outcome == nil || page.AgentRequests[0].Outcome.Ref != refs["answer"] || page.AgentRequests[1].Request != refs["third"] || page.AgentRequests[1].State != "completed" || page.AgentRequests[1].Outcome == nil || page.AgentRequests[1].Outcome.Ref != refs["third-answer"] {
 		t.Fatalf("agent projection = %#v", page.AgentRequests)
 	}
 	if len(page.Interactions) != 1 || page.Interactions[0].Request.Ref != refs["ai"] || page.Interactions[0].Response == nil || page.Interactions[0].Response.Ref != refs["ais"] {
 		t.Fatalf("resolved input = %#v", page.Interactions)
+	}
+	// Exactly three replies need no indicator. A fourth only sets the flag:
+	// it must not be hydrated or expanded into an agent request/outcome.
+	add("hidden", "a", "agent.request", "", request(second), 5)
+	add("hidden-answer", "hidden", "agent.success", second, text, 20)
+	more := get(database.ConversationBranchQuery{Limit: 1})
+	if !more.Entries[0].HasMoreReplies || !reflect.DeepEqual(more.Entries[0].Previews, previews) || !reflect.DeepEqual(more.AgentRequests, page.AgentRequests) || !reflect.DeepEqual(more.Interactions, page.Interactions) {
+		t.Fatalf("fourth reply changed visible projection: %#v", more)
 	}
 	next := get(database.ConversationBranchQuery{Limit: 1, Cursor: page.NextCursor})
 	if next.Entries[0].Event.Ref != refs["b"] || len(next.AgentRequests) != 1 || next.AgentRequests[0].State != "waiting" || len(next.Interactions) != 2 {
@@ -136,12 +144,12 @@ func testConversationBranch(t *testing.T, store *database.Store, configuration c
 	for _, agent := range all.AgentRequests {
 		states[agent.Request.Id] = agent.State
 	}
-	want := map[string]string{refs["ar"].Id: "completed", refs["br"].Id: "waiting", refs["cr"].Id: "failed", refs["dr"].Id: "cancelling", refs["er"].Id: "working", refs["fr"].Id: "cancelled"}
+	want := map[string]string{refs["ar"].Id: "completed", refs["third"].Id: "completed", refs["br"].Id: "waiting", refs["cr"].Id: "failed", refs["dr"].Id: "cancelling", refs["er"].Id: "working", refs["fr"].Id: "cancelled"}
 	if !reflect.DeepEqual(states, want) || all.NextCursor != "" {
 		t.Fatalf("states = %v, cursor %q", states, all.NextCursor)
 	}
 	nested := get(database.ConversationBranchQuery{Parent: refs["a"].Id, Limit: 100})
-	if len(nested.Entries) != 3 || nested.Entries[0].Event.Ref != refs["ar"] || nested.Entries[2].Event.Ref != refs["hidden"] {
+	if len(nested.Entries) != 4 || nested.Entries[0].Event.Ref != refs["ar"] || nested.Entries[2].Event.Ref != refs["third"] || nested.Entries[3].Event.Ref != refs["hidden"] {
 		t.Fatalf("nested branch = %#v", nested.Entries)
 	}
 	answers := get(database.ConversationBranchQuery{Parent: refs["answer"].Id, Limit: 100})

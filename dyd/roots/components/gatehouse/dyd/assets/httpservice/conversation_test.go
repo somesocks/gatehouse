@@ -74,6 +74,8 @@ func TestConversationBranchAPI(t *testing.T) {
 	add("a", "", "message.text", false, map[string]any{"text": "Hello", "agents": []string{bot}, "attachments": []string{upload.File.Ref.Id}}, 0)
 	add("ar", "a", "agent.request", false, map[string]any{"agent": bot}, 3)
 	add("human", "a", "message.text", false, map[string]any{"text": "Human reply"}, 3)
+	add("third", "a", "agent.request", false, map[string]any{"agent": bot}, 3)
+	add("third-answer", "third", "agent.success", true, map[string]any{"text": "Third reply"}, 20)
 	add("hidden", "a", "agent.request", false, map[string]any{"agent": bot}, 3)
 	add("hidden-answer", "hidden", "agent.success", true, map[string]any{"text": "HIDDEN_ANSWER"}, 20)
 	add("at", "ar", "tool.request", true, map[string]any{"name": "lisp", "reason": "Review form", "code": "EXECUTION_SECRET"}, 5)
@@ -111,8 +113,16 @@ func TestConversationBranchAPI(t *testing.T) {
 	first := get(base + "/events/branch?limit=1")
 	entries := first["entries"].([]any)
 	entry := entries[0].(map[string]any)
-	if len(entries) != 1 || entry["has_more_replies"] != true || len(entry["previews"].([]any)) != 2 {
+	previews := entry["previews"].([]any)
+	if len(entries) != 1 || entry["has_more_replies"] != true || len(previews) != 3 || previews[2].(map[string]any)["ref"].(map[string]any)["id"] != refs["third"].Id {
 		t.Fatalf("entry = %#v", entry)
+	}
+	encoded, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), refs["hidden"].Id) || strings.Contains(string(encoded), "HIDDEN_ANSWER") {
+		t.Fatalf("fourth reply was exposed: %s", encoded)
 	}
 	if first["parent"] != nil {
 		t.Fatal("root branch has a parent")
@@ -124,8 +134,12 @@ func TestConversationBranchAPI(t *testing.T) {
 	}
 	agents := first["agent_requests"].([]any)
 	agent := agents[0].(map[string]any)
-	if len(agents) != 1 || agent["state"] != "completed" || agent["outcome"].(map[string]any)["kind"] != "agent.success" {
+	if len(agents) != 2 || agent["state"] != "completed" || agent["outcome"].(map[string]any)["kind"] != "agent.success" {
 		t.Fatalf("agent = %#v", agents)
+	}
+	third := agents[1].(map[string]any)
+	if third["request"].(map[string]any)["id"] != refs["third"].Id || third["state"] != "completed" || third["outcome"].(map[string]any)["ref"].(map[string]any)["id"] != refs["third-answer"].Id {
+		t.Fatalf("third preview lost its agent outcome: %#v", third)
 	}
 	outcome := agent["outcome"].(map[string]any)
 	if outcome["parent"].(map[string]any)["id"] != refs["ar"].Id || outcome["author_agent"].(map[string]any)["alias"] != "assistant" {
