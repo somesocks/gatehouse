@@ -275,7 +275,11 @@ let ConversationAgentRequest =
             , state = s.reference.from s.reference.props::{ to = "ConversationAgentState" } s.reference.meta::{=}
             , interactions = s.list.from s.list.props::{ values = eventRefReference } s.list.meta::{=}
             }
-        , optional = toMap { outcome = eventReference }
+        , optional = toMap
+            { outcome = eventReference
+            , outcome_previews = s.list.from s.list.props::{ values = eventReference } s.list.meta::{=}
+            , outcome_has_more_replies = s.boolean.from s.boolean.props::{=} s.boolean.meta::{=}
+            }
         }
         s.record.meta::{ name = Some "ConversationAgentRequest" }
 

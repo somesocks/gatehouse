@@ -362,6 +362,75 @@ it("renders two conversational previews, actual answer links, per-agent state an
   ).toBe(true)
 })
 
+it("previews siblings under a folded agent answer and opens the outcome branch", async () => {
+  const base = api()
+  const navigate = vi.fn()
+  const replies = ["First follow-up", "Sibling follow-up"].map((text, i) =>
+    event(`follow-up-${i}`, "message.text", { text }, "answer"),
+  )
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, options?: RequestInit) => {
+      const url = new URL(path, "http://localhost")
+      if (!url.pathname.endsWith("/events/branch")) return base(path, options)
+      if (url.searchParams.get("parent") === "answer")
+        return Response.json({
+          ...empty,
+          parent: answer,
+          entries: replies.map(entry),
+        })
+      return Response.json({
+        ...empty,
+        entries: [{ ...entry(first), previews: [requests[0]] }],
+        agent_requests: [
+          {
+            request: requests[0]!.ref,
+            state: "completed",
+            outcome: answer,
+            outcome_previews: replies,
+            interactions: [],
+          },
+        ],
+      })
+    }),
+  )
+  app = mount(ConversationFixture, {
+    target: document.body,
+    props: { initialPath: root, onNavigate: navigate },
+  })
+  const previewGroup = () =>
+    document.querySelector('[aria-label="Replies to agent message"]')
+  await vi.waitFor(() => expect(previewGroup()).not.toBeNull())
+  const preview = previewGroup()!
+  expect(preview.closest('[aria-label="Reply previews"]')).not.toBeNull()
+  expect(preview.previousElementSibling?.textContent).toContain(
+    "Answer Markdown",
+  )
+  expect(
+    [...preview.querySelectorAll('[data-slot="message"]')].map(
+      (item) => item.textContent,
+    ),
+  ).toEqual([
+    expect.stringContaining("First follow-up"),
+    expect.stringContaining("Sibling follow-up"),
+  ])
+  const path = `${root}?parent=answer`
+  expect(preview.querySelector(`a[href="${path}"]`)?.textContent).toBe(
+    "See all replies",
+  )
+  expect(
+    document.querySelector(`a[href="${root}?parent=request-one"]`),
+  ).toBeNull()
+  follow(path)
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("Replying to"),
+  )
+  expect(navigate).toHaveBeenCalledWith(path)
+  expect(previewGroup()).toBeNull()
+  expect(document.body.textContent).toContain("First follow-up")
+  expect(document.body.textContent).toContain("Sibling follow-up")
+})
+
 it("keeps input activity inside the agent message before waiting, resumed work, and the final answer", async () => {
   const base = api()
   let state: "waiting" | "working" | "completed" = "waiting"

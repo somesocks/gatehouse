@@ -43,6 +43,7 @@ export function branchEventIDs(branch: ChatBranch): string[] {
     ...branch.agent_requests.flatMap((request) => [
       request.request.id,
       ...(request.outcome ? [request.outcome.ref.id] : []),
+      ...(request.outcome_previews?.map((event) => event.ref.id) ?? []),
     ]),
     ...branch.interactions.flatMap((interaction) => [
       interaction.request.ref.id,

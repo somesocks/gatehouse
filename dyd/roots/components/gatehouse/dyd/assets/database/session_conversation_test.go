@@ -86,6 +86,8 @@ func testConversationBranch(t *testing.T, store *database.Store, configuration c
 	add("ais", "ai", "input.success", "", map[string]any{"result": map[string]any{"private": "answer"}}, 12)
 	add("answer", "ar", "agent.success", first, text, 20)
 	add("answer-child", "answer", "message.text", "", text, 25)
+	add("answer-sibling", "answer", "message.text", "", text, 25)
+	add("answer-grandchild", "answer-child", "message.text", "", text, 27)
 	add("b", "", "message.text", "", text, 0) // Same-time root, higher ID.
 	add("br", "b", "agent.request", "", request(second), 5)
 	add("bt", "br", "tool.request", second, map[string]any{}, 10)
@@ -124,6 +126,10 @@ func testConversationBranch(t *testing.T, store *database.Store, configuration c
 	if len(page.AgentRequests) != 2 || page.AgentRequests[0].Request != refs["ar"] || page.AgentRequests[0].State != "completed" || page.AgentRequests[0].Outcome == nil || page.AgentRequests[0].Outcome.Ref != refs["answer"] || page.AgentRequests[1].Request != refs["third"] || page.AgentRequests[1].State != "completed" || page.AgentRequests[1].Outcome == nil || page.AgentRequests[1].Outcome.Ref != refs["third-answer"] {
 		t.Fatalf("agent projection = %#v", page.AgentRequests)
 	}
+	answerReplies := page.AgentRequests[0].OutcomePreviews
+	if len(answerReplies) != 2 || answerReplies[0].Ref != refs["answer-child"] || answerReplies[1].Ref != refs["answer-sibling"] || *answerReplies[0].Parent != refs["answer"] || page.AgentRequests[0].OutcomeHasMoreReplies || len(page.AgentRequests[1].OutcomePreviews) != 0 {
+		t.Fatalf("folded answer previews = %#v", page.AgentRequests)
+	}
 	if len(page.Interactions) != 1 || page.Interactions[0].Request.Ref != refs["ai"] || page.Interactions[0].Response == nil || page.Interactions[0].Response.Ref != refs["ais"] {
 		t.Fatalf("resolved input = %#v", page.Interactions)
 	}
@@ -152,8 +158,14 @@ func testConversationBranch(t *testing.T, store *database.Store, configuration c
 	if len(nested.Entries) != 4 || nested.Entries[0].Event.Ref != refs["ar"] || nested.Entries[2].Event.Ref != refs["third"] || nested.Entries[3].Event.Ref != refs["hidden"] {
 		t.Fatalf("nested branch = %#v", nested.Entries)
 	}
+	add("answer-third", "answer", "message.text", "", text, 26)
+	add("answer-fourth", "answer", "message.text", "", text, 27)
+	withFourth := get(database.ConversationBranchQuery{Limit: 1}).AgentRequests[0]
+	if !withFourth.OutcomeHasMoreReplies || len(withFourth.OutcomePreviews) != 3 || withFourth.OutcomePreviews[2].Ref != refs["answer-third"] || !reflect.DeepEqual(withFourth.OutcomePreviews[:2], answerReplies) {
+		t.Fatalf("folded answer with fourth reply = %#v", withFourth)
+	}
 	answers := get(database.ConversationBranchQuery{Parent: refs["answer"].Id, Limit: 100})
-	if len(answers.Entries) != 1 || answers.Entries[0].Event.Ref != refs["answer-child"] || *answers.Entries[0].Event.Parent != refs["answer"] {
+	if len(answers.Entries) != 4 || answers.Entries[0].Event.Ref != refs["answer-child"] || *answers.Entries[0].Event.Parent != refs["answer"] || answers.Entries[3].Event.Ref != refs["answer-fourth"] {
 		t.Fatalf("answer branch = %#v", answers)
 	}
 	// Directly visible forms also get response state, without a visible agent request.
@@ -167,7 +179,7 @@ func testConversationBranch(t *testing.T, store *database.Store, configuration c
 	if len(pending.Entries) != 2 || len(pending.Interactions) != 2 || pending.Interactions[0].Response != nil {
 		t.Fatalf("direct pending prompts = %#v", pending)
 	}
-	empty := get(database.ConversationBranchQuery{Parent: refs["answer-child"].Id, Limit: 100})
+	empty := get(database.ConversationBranchQuery{Parent: refs["answer-grandchild"].Id, Limit: 100})
 	if len(empty.Entries) != 0 || empty.Entries == nil || empty.AgentRequests == nil || empty.Interactions == nil {
 		t.Fatalf("empty branch = %#v", empty)
 	}

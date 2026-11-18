@@ -54,6 +54,20 @@ terminals AS MATERIALIZED (
     ORDER BY t.created_at,t.id LIMIT 2
    )
 ),
+-- A visible agent request stands in for its outcome in the UI. Preview
+-- posted replies to the outcome itself, without expanding another request level.
+outcome_previews AS MATERIALIZED (
+ SELECT t.owner,c.id,c.parent,c.kind,c.created_at,
+        row_number() OVER (PARTITION BY t.id ORDER BY c.created_at,c.id) AS slot
+ FROM terminals AS t CROSS JOIN gatehouse_session_events AS c
+ WHERE c.workspace=@workspace AND c.session=@session
+   AND c.id IN (
+    SELECT p.id FROM gatehouse_session_events AS p
+    WHERE p.workspace=@workspace AND p.session=@session AND p.parent=t.id
+      AND p.kind='message.text'
+    ORDER BY p.created_at,p.id LIMIT 4
+   )
+),
 cancellations AS MATERIALIZED (
  SELECT r.id AS owner,c.id,c.parent,c.kind,c.created_at
  FROM requests AS r CROSS JOIN gatehouse_session_events AS c
@@ -95,6 +109,9 @@ refs(relation,owner,slot,id,parent,kind,created_at,hydrate) AS MATERIALIZED (
  UNION ALL
  SELECT CASE WHEN slot=4 THEN 'preview-more' ELSE 'preview' END,
         owner,slot,id,parent,kind,created_at,CASE WHEN slot<4 THEN 1 ELSE 0 END FROM previews
+ UNION ALL
+ SELECT CASE WHEN slot=4 THEN 'outcome-preview-more' ELSE 'outcome-preview' END,
+        owner,slot,id,parent,kind,created_at,CASE WHEN slot<4 THEN 1 ELSE 0 END FROM outcome_previews
  UNION ALL
  SELECT 'terminal',owner,0,id,parent,kind,created_at,1 FROM terminals
  UNION ALL

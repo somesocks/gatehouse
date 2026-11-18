@@ -29,7 +29,9 @@ The response follows the generated `ConversationBranch` API schema:
   three `previews`, and `has_more_replies`.
 - `agent_requests`: state for each agent request visible as a branch member or
   preview. Each contains its `request` reference, `state`, interaction references
-  and an optional terminal `outcome` event.
+  and an optional terminal `outcome` event. When that outcome has posted replies,
+  `outcome_previews` contains up to three direct `message.text` children, with
+  `outcome_has_more_replies` set when a fourth exists.
 - `interactions`: input/approval `request` events and their optional `response`
   events, including requests displayed directly as members/previews.
 - `next_cursor`: present only if another branch member was found.
@@ -49,7 +51,11 @@ three are hydrated and expanded. The fourth sets `has_more_replies`; it is not
 returned as a preview or expanded into outcomes/interactions. Agent requests
 have their terminal outcome loaded separately rather than spending another
 preview slot on it. Input/approval requests expose resolution state separately.
-Previews themselves do not recursively acquire further previews in this read.
+Previews do not recursively acquire previews. The exception is a visible agent
+request folded into its terminal outcome: the posted replies directly under
+that outcome are previewed, even if the request is itself a preview. These
+replies are not expanded further. The UI links to the outcome's reply branch
+from this preview footer, not to the internal request.
 
 States are `working`, `waiting`, `cancelling`, `completed`, `failed` and
 `cancelled`. A terminal outcome takes precedence over working/waiting/cancelling.

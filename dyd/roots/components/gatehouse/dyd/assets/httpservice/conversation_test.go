@@ -83,6 +83,10 @@ func TestConversationBranchAPI(t *testing.T) {
 	add("ais", "ai", "input.success", false, map[string]any{"result": map[string]any{"private": "RESULT_SECRET"}}, 7)
 	add("ats", "at", "tool.success", true, map[string]any{"output_file": upload.File.Ref}, 8)
 	add("answer", "ar", "agent.success", true, map[string]any{"text": "Done", "reasoning": "REASONING_SECRET", "attachments": []string{upload.File.Ref.Id}}, 20)
+	for i := 1; i <= 4; i++ {
+		name := fmt.Sprintf("answer-reply-%d", i)
+		add(name, "answer", "message.text", false, map[string]any{"text": name, "attachments": []string{upload.File.Ref.Id}}, 21)
+	}
 	add("b", "", "message.text", false, map[string]any{"text": "Second root"}, 1)
 	add("br", "b", "agent.request", false, map[string]any{"agent": bot}, 3)
 	add("bt", "br", "tool.request", true, map[string]any{"code": "EXECUTION_SECRET"}, 5)
@@ -145,6 +149,17 @@ func TestConversationBranchAPI(t *testing.T) {
 	if outcome["parent"].(map[string]any)["id"] != refs["ar"].Id || outcome["author_agent"].(map[string]any)["alias"] != "assistant" {
 		t.Fatalf("lost actual parent or attribution: %#v", outcome)
 	}
+	replies := agent["outcome_previews"].([]any)
+	if len(replies) != 3 || agent["outcome_has_more_replies"] != true || strings.Contains(string(encoded), refs["answer-reply-4"].Id) || strings.Contains(string(encoded), "answer-reply-4") {
+		t.Fatalf("folded answer previews = %#v", agent)
+	}
+	for i, value := range replies {
+		reply := value.(map[string]any)
+		file := reply["payload"].(map[string]any)["attachments"].([]any)[0].(map[string]any)
+		if reply["ref"].(map[string]any)["id"] != refs[fmt.Sprintf("answer-reply-%d", i+1)].Id || reply["parent"].(map[string]any)["id"] != refs["answer"].Id || file["id"] != upload.File.Ref.Id {
+			t.Fatalf("folded reply lost identity, parent or file metadata: %#v", reply)
+		}
+	}
 	interactions := first["interactions"].([]any)
 	if len(interactions) != 1 || interactions[0].(map[string]any)["response"].(map[string]any)["kind"] != "input.success" {
 		t.Fatalf("interactions = %#v", interactions)
@@ -166,9 +181,9 @@ func TestConversationBranchAPI(t *testing.T) {
 	if direct["parent"].(map[string]any)["ref"].(map[string]any)["id"] != refs["at"].Id || len(direct["interactions"].([]any)) != 1 || len(direct["agent_requests"].([]any)) != 0 {
 		t.Fatalf("direct form = %#v", direct)
 	}
-	empty := get(base + "/events/branch?parent=" + refs["answer"].Id)
-	if len(empty["entries"].([]any)) != 0 || len(empty["interactions"].([]any)) != 0 || !reflect.DeepEqual(empty["parent"], outcome) {
-		t.Fatalf("empty branch or agent-answer parent = %#v", empty)
+	answerBranch := get(base + "/events/branch?parent=" + refs["answer"].Id)
+	if len(answerBranch["entries"].([]any)) != 4 || len(answerBranch["interactions"].([]any)) != 0 || !reflect.DeepEqual(answerBranch["parent"], outcome) {
+		t.Fatalf("direct agent-answer branch = %#v", answerBranch)
 	}
 	tool := get(base + "/events/branch?parent=" + refs["ats"].Id)
 	file := tool["parent"].(map[string]any)["payload"].(map[string]any)["output_file"].(map[string]any)

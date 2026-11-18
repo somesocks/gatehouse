@@ -40,10 +40,12 @@ type ConversationEntry struct {
 }
 
 type ConversationAgentRequest struct {
-	Request      model.SessionEventRef
-	State        string
-	Outcome      *model.SessionEvent
-	Interactions []model.SessionEventRef
+	Request               model.SessionEventRef
+	State                 string
+	Outcome               *model.SessionEvent
+	OutcomePreviews       []model.SessionEvent
+	OutcomeHasMoreReplies bool
+	Interactions          []model.SessionEventRef
 }
 
 type ConversationInteraction struct {
@@ -152,7 +154,7 @@ func (store *Store) SessionConversationBranchGet(ctx context.Context, session mo
 		case "branch-more":
 			more = true
 			continue
-		case "preview-more":
+		case "preview-more", "outcome-preview-more":
 			selected = append(selected, conversationRow{relation: relation, owner: owner.String})
 			continue
 		}
@@ -259,14 +261,21 @@ func assembleConversationBranch(rows []conversationRow) (*ConversationBranch, er
 	}
 	for _, row := range rows {
 		switch row.relation {
-		case "terminal", "cancellation":
+		case "terminal", "cancellation", "outcome-preview", "outcome-preview-more":
 			index, ok := agents[row.owner]
 			if !ok {
 				return nil, fmt.Errorf("conversation agent request %q is unavailable", row.owner)
 			}
 			agent := &result.AgentRequests[index]
-			if row.relation == "cancellation" {
+			switch row.relation {
+			case "cancellation":
 				agent.State = "cancelling"
+				continue
+			case "outcome-preview":
+				agent.OutcomePreviews = append(agent.OutcomePreviews, row.event)
+				continue
+			case "outcome-preview-more":
+				agent.OutcomeHasMoreReplies = true
 				continue
 			}
 			if agent.Outcome != nil {

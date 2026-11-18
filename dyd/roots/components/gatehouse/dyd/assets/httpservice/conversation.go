@@ -102,6 +102,9 @@ func conversationBranchWire(request *http.Request, store *database.Store, sessio
 	for _, agent := range branch.AgentRequests {
 		if agent.Outcome != nil {
 			add(*agent.Outcome)
+			for _, preview := range agent.OutcomePreviews {
+				add(preview)
+			}
 		}
 	}
 	for _, interaction := range branch.Interactions {
@@ -152,6 +155,16 @@ func conversationBranchWire(request *http.Request, store *database.Store, sessio
 		value := map[string]any{"request": conversationEventRefWire(agent.Request), "state": agent.State, "interactions": interactions}
 		if agent.Outcome != nil {
 			value["outcome"] = encoded[agent.Outcome.Ref.Id]
+			if len(agent.OutcomePreviews) > 0 {
+				previews := make([]any, 0, len(agent.OutcomePreviews))
+				for _, event := range agent.OutcomePreviews {
+					previews = append(previews, encoded[event.Ref.Id])
+				}
+				value["outcome_previews"] = previews
+			}
+			if agent.OutcomeHasMoreReplies {
+				value["outcome_has_more_replies"] = true
+			}
 		}
 		resultAgents = append(resultAgents, value)
 	}
