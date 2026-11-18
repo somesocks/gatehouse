@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"gatehouse/database"
@@ -17,6 +18,13 @@ type tadwRequestContext struct {
 	choice     agentContextSelection
 	historyIDs []string
 	boundary   string
+}
+
+func (state *tadwRequestContext) cacheBaseID() string {
+	if len(state.historyIDs) != 0 {
+		return state.historyIDs[0]
+	}
+	return state.request.Id // The pinned request is first when there is no history.
 }
 
 func tadwRequestCompatibility(agent model.WorkspaceAgentRef, scope tadwHistoryCacheScope, limits tadwWindowConfig) (string, error) {
@@ -148,6 +156,37 @@ func (runtime *SessionEventReplyRuntime) renderRequestTADW(ctx context.Context, 
 	if err != nil {
 		return agentProviderRequest{}, err
 	}
-	err, request := agentProviderRequestPrepareTADW(selected, projectChat, tadwPreparedHistory{Agent: selected.Ref, Scope: scope, History: history}, transcript, *state.choice.TADW, hints)
+	var cacheCandidates []string
+	if tadwSupportsExplicitCache(selected) {
+		cacheCandidates = runtime.tadwCacheCandidates(ctx, state, scope, hints.Message)
+	}
+	err, request := agentProviderRequestPrepareTADW(selected, projectChat, tadwPreparedHistory{Agent: selected.Ref, Scope: scope, History: history}, transcript, *state.choice.TADW, hints, cacheCandidates...)
 	return request, err
+}
+
+func (runtime *SessionEventReplyRuntime) tadwCacheCandidates(ctx context.Context, state *tadwRequestContext, scope tadwHistoryCacheScope, message model.SessionEventRef) []string {
+	previous, err := loadTADWCacheBreakpoints(ctx, runtime.store, scope, state.cacheBaseID())
+	if err != nil {
+		slog.WarnContext(ctx, "load TADW cache breakpoints", "error", err)
+	}
+	// Prefer the most recent sent endpoint, then the actual parent of this
+	// message for sibling reuse, then earlier marked endpoints. Assembly only
+	// keeps candidates that are present in the selected event stream.
+	var candidates []string
+	if len(previous) != 0 {
+		candidates = append(candidates, previous[len(previous)-1])
+		previous = previous[:len(previous)-1]
+	}
+	if len(state.historyIDs) > 1 {
+		err, event := runtime.store.SessionEventGet(ctx, message)
+		if err != nil {
+			slog.WarnContext(ctx, "load TADW cache branch anchor", "error", err)
+		} else if event != nil && event.Parent != nil {
+			candidates = append(candidates, event.Parent.Id)
+		}
+	}
+	for _, id := range slices.Backward(previous) {
+		candidates = append(candidates, id)
+	}
+	return candidates
 }

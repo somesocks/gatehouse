@@ -55,10 +55,11 @@ check, and an unobservable provider-side routing/model change cannot be detected
 - `tadw-history-preparation-v1`.
 - The existing `tadw-history-v1` selection/hint algorithm identifier.
 - `tadw-flat-xml-v1`, an internal transcript-format compatibility salt.
-- `tadw-single-user-xml-v2`, the provider conversation-packaging salt including
-  the trailing orientation block from the [provider-input adapter](tadw-provider-input.md).
-- The **actual static provider wire body**, obtained by calling
-  `agentProviderRequestPrepare(selected, projectChat, nil)` and then `.body()`.
+- `tadw-event-user-xml-v3`, the provider packaging salt for one message per
+  event and a separate orientation message (see [provider input](tadw-provider-input.md)).
+- The **actual static provider wire body**, obtained by preparing without a
+  conversation, setting explicit cache options when supported, then calling
+  `.body()`. Individual event markers are not part of this template.
 
 The static body contains the same effective system prompt, tool definitions,
 response schema, model and protocol settings as provider preparation. For Codex
@@ -88,11 +89,9 @@ preserved; hashing an actual growing request would prevent cross-request reuse.
 The transcript-format constant is declared beside the renderer without changing
 its output. Bump compatibility versions when serialization/ordering or
 TADW-to-provider message packaging changes incompatibly. The separate
-[provider-input adapter](tadw-provider-input.md) now implements single-user-message
-packaging and checks that its selected configuration matches the prepared scope.
-The profile includes the new packaging salt; previous preparation-only hints
-become cold without a schema migration. Full provider/request-loop integration
-remains separate work.
+[provider-input adapter](tadw-provider-input.md) sends individual event messages
+and checks that its selected configuration matches the prepared scope. Earlier
+packaging profiles become cold without a schema migration.
 
 ## Preparation and DBOS lifecycle
 

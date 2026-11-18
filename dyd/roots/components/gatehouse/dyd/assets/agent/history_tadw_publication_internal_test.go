@@ -69,10 +69,18 @@ func TestTADWPublicationScopeMatchesSentWire(t *testing.T) {
 					t.Fatal("effective output cap must change the profile")
 				}
 				cappedBody, _ := json.Marshal(request.body())
+				// Add an event before the separate footer; neither content nor message
+				// count is part of the alignment fingerprint.
 				if request.Chat != nil {
-					request.Chat.Messages[len(request.Chat.Messages)-1].Content = "different transcript"
+					last := len(request.Chat.Messages) - 1
+					footer := request.Chat.Messages[last]
+					request.Chat.Messages[last] = openAICompatibleMessage{Role: "user", Content: "new event"}
+					request.Chat.Messages = append(request.Chat.Messages, footer)
 				} else {
-					request.Responses.Input = openAIResponsesInput([]openAICompatibleMessage{{Role: "user", Content: "different transcript"}})
+					last := len(request.Responses.Input) - 1
+					footer := request.Responses.Input[last]
+					request.Responses.Input[last] = openAIResponsesMessage("user", "new event")
+					request.Responses.Input = append(request.Responses.Input, footer)
 				}
 				unchanged, err := tadwHistoryCacheScopeForSentRequest(prepared.Scope.Session, selected, request)
 				if err != nil || unchanged != scope {

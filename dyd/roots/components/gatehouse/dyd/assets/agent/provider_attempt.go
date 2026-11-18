@@ -89,11 +89,12 @@ func (runtime *SessionEventReplyRuntime) agentProviderAttempt(ctx dbos.Context, 
 		}
 		var hintScope tadwHistoryCacheScope
 		var hintBase model.SessionEventRef
-		if state != nil && len(state.historyIDs) > 0 && turn.Failure == nil {
+		breakpoints := request.tadwBreakpoints
+		if state != nil && (len(state.historyIDs) > 0 || len(breakpoints) > 0) && turn.Failure == nil {
 			var hintErr error
 			hintScope, hintErr = tadwHistoryCacheScopeForSentRequest(parent.Session, selected, request)
 			if hintErr == nil {
-				hintBase = model.SessionEventRef{Session: parent.Session, Id: state.historyIDs[0]}
+				hintBase = model.SessionEventRef{Session: parent.Session, Id: state.cacheBaseID()}
 			} else {
 				slog.WarnContext(step, "derive TADW history alignment hint", "error", hintErr)
 			}
@@ -130,7 +131,7 @@ func (runtime *SessionEventReplyRuntime) agentProviderAttempt(ctx dbos.Context, 
 		// Optional alignment work follows the durable application decision. A crash
 		// before publication may lose a hint, but cannot repeat a committed send.
 		if hintBase.Id != "" {
-			if err := publishTADWHistoryCacheHint(step, runtime.store, hintScope, hintBase); err != nil {
+			if err := publishTADWHistoryCacheHint(step, runtime.store, hintScope, hintBase, breakpoints...); err != nil {
 				slog.WarnContext(step, "publish TADW history alignment hint", "error", err)
 			}
 		}

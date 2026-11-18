@@ -124,8 +124,17 @@ func (f *tadwLiveFixture) outcome(t *testing.T) model.SessionEvent {
 		if err != nil {
 			t.Fatal(err)
 		}
+		owners := make(map[model.SessionEventRef]bool)
+		for _, event := range events {
+			if event.Kind == model.SessionEventKindAgentRequest && event.Parent != nil && *event.Parent == f.message.Ref {
+				owners[event.Ref] = true
+			}
+		}
 		for _, event := range events {
 			if event.Kind != model.SessionEventKindAgentSuccess && event.Kind != model.SessionEventKindAgentFailure {
+				continue
+			}
+			if event.Parent == nil || !owners[*event.Parent] {
 				continue
 			}
 			var active int
@@ -179,7 +188,7 @@ func liveProviderReply(w http.ResponseWriter, protocol string, tool int) {
 	}
 }
 
-func liveUserContent(t *testing.T, body []byte) string {
+func liveUserMessages(t *testing.T, body []byte) []string {
 	t.Helper()
 	var decoded struct {
 		Messages []struct{ Role, Content string }
@@ -192,20 +201,23 @@ func liveUserContent(t *testing.T, body []byte) string {
 	if len(decoded.Messages) > 0 {
 		messages = decoded.Messages
 	}
-	users := 0
-	content := ""
-	for _, message := range messages {
+	var users []string
+	for index, message := range messages {
 		if message.Role == "user" {
-			users++
-			content = message.Content
-		} else if message.Role != "system" {
+			users = append(users, message.Content)
+		} else if index != 0 || len(decoded.Messages) == 0 || message.Role != "system" {
 			t.Fatalf("native historical conversation in TADW request: %s", body)
 		}
 	}
-	if users != 1 {
-		t.Fatalf("want one user message, got %d: %s", users, body)
+	if len(users) < 2 || !strings.HasPrefix(users[len(users)-1], "<hints>\n") || !strings.HasSuffix(users[len(users)-1], "</hints>\n") {
+		t.Fatalf("want event messages and a separate final hints message: %s", body)
 	}
-	return content
+	return users
+}
+
+func liveUserContent(t *testing.T, body []byte) string {
+	t.Helper()
+	return strings.Join(liveUserMessages(t, body), "")
 }
 
 func liveStepOutput(t *testing.T, value string) []byte {
@@ -364,12 +376,13 @@ func TestTADWNormalReplyToolingAndRetry(t *testing.T) {
 			requestHint := fmt.Sprintf(`<request id="%s" message="%s" />`, outcome.Parent.Id, f.message.Ref.Id)
 			toolingHint := fmt.Sprintf(`<tooling-start id="%s" />`, outcome.Parent.Id)
 			for index, body := range requests {
-				content := liveUserContent(t, body)
-				if !strings.Contains(content, liveTADWMarker) || strings.Count(content, "<agent.request ") != 1 || len([]byte(content)) > 3200 {
+				messages := liveUserMessages(t, body)
+				content, footer := strings.Join(messages[:len(messages)-1], ""), messages[len(messages)-1]
+				if !strings.Contains(content, liveTADWMarker) || strings.Count(content, "<agent.request ") != 1 || len(content)+len(footer) > 3200 {
 					t.Fatalf("attempt %d invalid transcript: %s", index, content)
 				}
-				if strings.Count(content, "<hints>") != 1 || !strings.HasSuffix(content, "</hints>\n") || !strings.Contains(content, requestHint) || !strings.Contains(content, toolingHint) {
-					t.Fatalf("attempt %d lost its actual message/request/tooling orientation: %s", index, content)
+				if strings.Contains(content, "<hints>") || !strings.Contains(footer, requestHint) || !strings.Contains(footer, toolingHint) {
+					t.Fatalf("attempt %d lost its separate message/request/tooling orientation: %s", index, footer)
 				}
 				if index > 1 && !strings.Contains(content, fmt.Sprint("TADW_PRIVATE_TOOL_", index-1, "_")) {
 					t.Fatalf("attempt %d lost newest tooling: %s", index, content)

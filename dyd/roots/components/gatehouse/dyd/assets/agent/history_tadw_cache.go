@@ -24,8 +24,17 @@ func (scope tadwHistoryCacheScope) databaseScope() database.ContextCacheHintScop
 }
 
 type tadwHistoryCacheHint struct {
-	Version     int    `json:"version"`
-	BaseEventID string `json:"base_event_id"`
+	Version     int      `json:"version"`
+	BaseEventID string   `json:"base_event_id"`
+	Breakpoints []string `json:"breakpoints,omitempty"` // Marked event IDs in sent order.
+}
+
+func parseTADWHistoryCacheHint(record database.ContextCacheHint) (tadwHistoryCacheHint, bool) {
+	var hint tadwHistoryCacheHint
+	if len(record.Hint) > database.ContextCacheHintMaxBytes || json.Unmarshal(record.Hint, &hint) != nil || hint.Version != 1 || !typed_id.Valid(typed_id.SessionEvent, hint.BaseEventID) || record.Key != hint.BaseEventID {
+		return tadwHistoryCacheHint{}, false
+	}
+	return hint, true
 }
 
 // Hints never imply membership/visibility or a provider cache hit. The existing
@@ -37,23 +46,44 @@ func loadTADWHistoryCacheHints(ctx context.Context, store *database.Store, scope
 	}
 	var ids []string
 	for _, record := range hints {
-		var hint tadwHistoryCacheHint
-		if len(record.Hint) > database.ContextCacheHintMaxBytes || json.Unmarshal(record.Hint, &hint) != nil || hint.Version != 1 || !typed_id.Valid(typed_id.SessionEvent, hint.BaseEventID) || record.Key != hint.BaseEventID {
-			continue
+		if hint, ok := parseTADWHistoryCacheHint(record); ok {
+			ids = append(ids, hint.BaseEventID)
 		}
-		ids = append(ids, hint.BaseEventID)
 	}
 	return ids, nil
+}
+
+// Breakpoint candidates from another base cannot match the full prefix. Only
+// event IDs are shared: the provider still verifies exact equality and TTL.
+func loadTADWCacheBreakpoints(ctx context.Context, store *database.Store, scope tadwHistoryCacheScope, base string) ([]string, error) {
+	records, err := store.ContextCacheHintsList(ctx, scope.databaseScope())
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range records {
+		if record.Key != base {
+			continue
+		}
+		hint, ok := parseTADWHistoryCacheHint(record)
+		if ok && len(hint.Breakpoints) <= tadwMaxProviderBreakpoints {
+			return hint.Breakpoints, nil
+		}
+		break
+	}
+	return nil, nil
 }
 
 // publishTADWHistoryCacheHint must be explicitly called only after a provider
 // request actually used this base. Merely selecting/checkpointing never calls it.
 // IDs can become stale; no event payload read or durable-context write is needed.
-func publishTADWHistoryCacheHint(ctx context.Context, store *database.Store, scope tadwHistoryCacheScope, base model.SessionEventRef) error {
+func publishTADWHistoryCacheHint(ctx context.Context, store *database.Store, scope tadwHistoryCacheScope, base model.SessionEventRef, breakpoints ...string) error {
 	if base.Session != scope.Session || !typed_id.Valid(typed_id.SessionEvent, base.Id) {
 		return fmt.Errorf("publish TADW history cache hint: invalid base scope or ID")
 	}
-	hint, err := json.Marshal(tadwHistoryCacheHint{Version: 1, BaseEventID: base.Id})
+	if len(breakpoints) > tadwMaxProviderBreakpoints {
+		return fmt.Errorf("publish TADW history cache hint: too many breakpoints")
+	}
+	hint, err := json.Marshal(tadwHistoryCacheHint{Version: 1, BaseEventID: base.Id, Breakpoints: breakpoints})
 	if err != nil {
 		return err
 	}
@@ -71,16 +101,26 @@ func tadwHistoryCacheScopeForSentRequest(session model.SessionRef, selected *dat
 	switch {
 	case request.Chat != nil && request.Responses == nil && !request.codex:
 		chat := *request.Chat
-		switch {
-		case len(chat.Messages) == 1 && chat.Messages[0].Role == "user":
-			chat.Messages = nil
-		case len(chat.Messages) == 2 && chat.Messages[0].Role == "system" && chat.Messages[1].Role == "user":
-			chat.Messages = chat.Messages[:1:1]
-		default:
+		systemCount := 0
+		if len(chat.Messages) > 0 && chat.Messages[0].Role == "system" {
+			systemCount = 1
+		}
+		users := chat.Messages[systemCount:]
+		if len(users) < 2 { // At least the owning request and the separate hints message.
 			return tadwHistoryCacheScope{}, fmt.Errorf("invalid TADW publication conversation")
 		}
+		for _, message := range users {
+			if message.Role != "user" {
+				return tadwHistoryCacheScope{}, fmt.Errorf("invalid TADW publication conversation")
+			}
+		}
+		if systemCount == 0 {
+			chat.Messages = nil
+		} else {
+			chat.Messages = chat.Messages[:1:1]
+		}
 		template.Chat = &chat
-	case request.Responses != nil && request.Chat == nil && len(request.Responses.Input) == 1:
+	case request.Responses != nil && request.Chat == nil && len(request.Responses.Input) >= 2:
 		responses := *request.Responses
 		responses.Input = []json.RawMessage{}
 		template.Responses = &responses

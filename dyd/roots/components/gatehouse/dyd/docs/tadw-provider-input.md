@@ -5,9 +5,9 @@ normal reply runtime. Transport is shared with MCMTR, which remains the default.
 See [context algorithms](context-algorithms.md) for model configuration and replay.
 This adapter builds bodies; it does not send them or publish shared hints.
 
-## One user message, flat semantic XML
+## One user message per event
 
-`agentProviderRequestPrepareTADW(selected, projectChat, prepared, transcript, limits, hints)`
+`agentProviderRequestPrepareTADW(selected, projectChat, prepared, transcript, limits, hints, cacheCandidates...)`
 accepts:
 
 - The resolved selected workspace agent, with invocation-local overrides applied.
@@ -15,15 +15,14 @@ accepts:
 - The complete retained `tadwTranscript` from request-tooling assembly/checkpointing.
 - The existing transcript byte limits.
 - Request/message references reconstructed from the actual owning request.
+- Optional candidate event IDs for provider cache breakpoints.
 
-The conversation contains exactly **one user message** whose content is:
+The adapter sends each fixed-history event and each retained tooling event as its
+own **user message**, in that order. Message content is the event's existing XML
+fragment, including its trailing newline. A tool request and its result are
+separate messages; neither history nor tooling is combined into a block.
 
-```text
-fixed history fragments + retained tooling fragments + request hints
-```
-
-The adapter concatenates the existing event XML strings in order, including their
-trailing newlines, then appends one orientation block:
+The final user message contains only the orientation block:
 
 ```xml
 <hints>
@@ -53,8 +52,10 @@ execution of future provider decisions.
 
 Protocol mapping reuses `agentProviderRequestPrepare`:
 
-- **Chat Completions:** optional existing system message, then the one user message.
-- **Responses:** existing instructions, then one role/content input item.
+- **Chat Completions:** optional existing system message, then event messages and
+  the final orientation message.
+- **Responses:** existing instructions, then one role/content input item per
+  event and one final orientation item.
 - **Codex:** the same intermediate Responses input, with the existing final Codex
   `.body()` transformation: stream/store/tool-choice settings are preserved and
   the unsupported public-API output-token field is absent from the wire body.
@@ -62,6 +63,26 @@ Protocol mapping reuses `agentProviderRequestPrepare`:
 An explicitly empty system-prompt replacement still means no Chat system message
 or empty Responses instructions, matching existing provider behavior. Builtin and
 unsupported/incomplete provider configurations fail through preparation validation.
+
+## OpenAI cache breakpoints
+
+TADW uses [explicit breakpoints](https://developers.openai.com/api/docs/guides/prompt-caching#choose-a-caching-mode)
+for GPT-5.6 and later on public OpenAI Responses and Chat Completions. The request
+sets `prompt_cache_options: {"mode":"explicit"}`. Each user item has one text block
+(`input_text` for Responses, `text` for Chat Completions). Marked blocks contain
+`prompt_cache_breakpoint: {"mode":"explicit"}`; the final orientation item is
+unmarked. Older models, compatible gateways, Codex, and MCMTR keep their existing
+formats. No new configuration is required.
+
+The adapter marks up to four distinct event IDs: the current last tooling event
+(or owning request before tools), the end of fixed history if present, then
+retained candidates in priority order. Runtime candidates prefer the last
+endpoint published for the same base and profile, then the triggering message's
+actual parent for sibling reuse, then earlier published endpoints. Dropped events
+aren't replaced with markers at different positions. The provider verifies the
+full prefix at each mark; sharing a branch ID by itself does not establish a hit.
+An unmarked footer remains outside the cache writes. No cache TTL or routing key
+is overridden.
 
 ## Compatibility describes the actual template
 
@@ -81,16 +102,17 @@ rather than quietly using stale publication keys. There is no automatic re-keyin
 history reselection or scope mutation. The caller must resolve configuration drift
 at the request-lifecycle layer. Treat `selected` as immutable during assembly.
 
-The profile includes `tadw-single-user-xml-v2`, the internal conversation-packaging
-version for the trailing orientation block. Earlier alignment-hint namespaces
-become cold; no table/data migration is required. The packaging version also
-enters each request's recorded compatibility guard. Finish active v1 requests
-before upgrading: an unfinished v1 request that needs fresh preparation under v2
-fails the compatibility check rather than silently changing its context format
-or byte reservation. Already-committed provider decisions still recover without
-preparation or another send.
-Neither growing XML nor event lists enter the fingerprint. Bump the packaging
-salt if role, envelope or message-boundary semantics change incompatibly.
+The profile includes `tadw-event-user-xml-v3`, the internal conversation-packaging
+version for separate event and orientation messages. Earlier alignment-hint
+namespaces become cold; no table/data migration is required. The packaging version
+also enters each request's recorded compatibility guard. Finish active TADW
+requests before upgrading from the single-message format: an unfinished request
+that needs fresh preparation fails the compatibility check rather than silently
+changing its context format. Already-committed provider decisions still recover
+without preparation or another send.
+The static explicit-cache option separates its profile from implicit caching.
+Growing XML, event lists and individual marker positions do not enter the
+fingerprint.
 
 This check is not a transport/configuration lock: callers must still use the same
 route/credentials/configuration when actually sending the built body. Nor is it a
@@ -134,19 +156,18 @@ does not double-escape semantic XML.
 ## Growth, rollover and durability
 
 With fixed history/configuration and an unchanged tooling boundary, new events
-append after the previous event prefix and before the trailing hints. The earlier
-**event prefix** remains a byte prefix of the grown content; the earlier complete
-input, including its old hints suffix, does not. This preserves the long reusable
-history/tooling prefix, not caching of the small trailing block. Rollover drops
-the old tooling prefix but preserves history and the owning request; the hints
-still identify that request and its parent, and the user role/message boundary
-stays unchanged.
+append after the unchanged sequence of **event messages** and before the separate
+hints message. No previous event message is rewritten or extended. The earlier
+complete input, including its hints message at the old position, is not a prefix
+of the new input. Rollover drops the old tooling prefix but preserves history and
+the owning request; the hints still identify that request and its parent.
 
-This is an alignment property, not proof of provider KV reuse. Tokenization can
-change around an append boundary, providers serialize messages/tools internally,
-and caches can expire. Rebuilding an earlier attempt after later rollover must
-use that earlier attempt's recorded boundary; given unchanged source metadata and
-configuration it yields the same provider body, not the latest suffix.
+This preserves message boundaries eligible for provider KV reuse. On supported
+OpenAI requests the explicit markers select a write boundary before the
+hints and make earlier marked boundaries eligible for lookup; a hit still
+requires a cached, matching prefix. Rebuilding an earlier attempt after later
+rollover uses that attempt's recorded tooling boundary, not the latest suffix.
+Shared cache candidates may change the optional markers, not its event content.
 
 The returned `agentProviderRequest` and its content belong to one provider
 attempt. Each retry prepares its own request. Durable workflow/step inputs and
@@ -175,9 +196,11 @@ drift, malformed/inconsistent buffers, duplicates/overlap, exact-fit/overflow an
 `INT64_MAX` arithmetic.
 
 SQLite integration tests grow tooling to an exact fit, then roll over, preserving
-history and testing event-prefix growth with a replaced hints suffix for all
-three protocols. Reconstruction of
-an earlier thinking attempt after later rollover must yield an identical wire
+history and testing the unchanged event-message prefix before the separate hints
+message for all three protocols. A reply workflow test also checks that a tool
+request and result append as separate items and that a follow-up reply preserves
+the earlier event items. Reconstruction of an earlier thinking attempt after
+later rollover must yield an identical wire
 body. A real DBOS workflow builds bodies across three tooling checkpoints but
 persists only IDs, boundaries and boolean simulated thinking results. Durable
 records are inspected, rendered-payload markers are rejected and no hint table is

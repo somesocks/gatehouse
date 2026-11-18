@@ -12,9 +12,10 @@ import (
 // A transient wire request. Neither it nor the rendered inputs are persisted in
 // thinking.request; the event's agent and parent references are authoritative.
 type agentProviderRequest struct {
-	Chat      *openAICompatibleRequest
-	Responses *openAIResponsesRequest
-	codex     bool
+	Chat            *openAICompatibleRequest
+	Responses       *openAIResponsesRequest
+	codex           bool
+	tadwBreakpoints []string // Event IDs marked on this particular wire request.
 }
 
 func (request agentProviderRequest) body() any {

@@ -33,8 +33,9 @@ Actual parent IDs are preserved when parents lie outside the window. There is no
 extra envelope, sorting of request/result blocks, or splitting of XML fragments.
 History slice elements are copied for ownership; immutable XML strings are reused.
 The [provider-input adapter](tadw-provider-input.md) places this
-assembled transcript in one user message followed by a small request-orientation
-`<hints>` block. It does not add native tool conversation blocks or alter events.
+assembled transcript as one user message per event followed by a separate
+request-orientation `<hints>` message. It does not add native tool conversation
+blocks or alter events.
 
 ## High-tide policy: drop the old prefix, no lower tier
 

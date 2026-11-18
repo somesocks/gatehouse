@@ -4,8 +4,9 @@ SQLite and PostgreSQL V071 add `gatehouse_context_cache_hints`, a small shared a
 store for **alignment hints**, not request recovery state. The TADW path in the
 [normal reply runtime](context-algorithms.md) reads compatible hints during fresh
 history selection and publishes/refreshes them after successful provider use.
-Both database backends use the same storage API and hint semantics. Provider cache
-controls remain separate work.
+Both database backends use the same storage API and hint semantics. Supported
+[OpenAI requests](tadw-provider-input.md#openai-cache-breakpoints)
+also use the store to carry optional provider breakpoint candidates across calls.
 
 ## Scope and schema
 
@@ -78,6 +79,12 @@ cleanup beyond session deletion is separate work.
 {"version":1,"base_event_id":"sev_..."}
 ```
 
+For explicit-cache requests, the same object also carries `breakpoints`: the list
+of up to four event IDs marked on the sent request, in sent order. A fresh provider
+preparation can consult the entry for its own base/profile and try those boundaries
+if the events remain in its selected context. A missing, stale, or unreadable
+breakpoint hint need not block request assembly or change event selection.
+
 The key equals the base ID. `loadTADWHistoryCacheHints` decodes at most 32 records,
 ignoring unrecognized/malformed semantic payloads, invalid IDs, unsupported
 versions and key/base mismatches. A valid but stale/out-of-branch ID is passed to
@@ -106,9 +113,9 @@ step, repeated history list, profile, cache payload or XML is persisted in DBOS.
 
 `publishTADWHistoryCacheHint` is an **explicit** publication API. The caller must
 invoke it only after a provider request actually used that base, not merely after
-selection/checkpointing. It accepts only a typed base event reference in the same
-session and stores the ID/version, without reading payloads. The reference may
-subsequently become stale. Neither history helper automatically publishes or
+selection/checkpointing. It accepts a typed base event reference in the same
+session and optionally the bounded provider breakpoint IDs, without reading
+payloads. The references may become stale. Neither history helper automatically publishes or
 touches hints. A used prefix is not proof that a provider retained or reused its
 KV cache.
 
@@ -117,11 +124,13 @@ KV cache.
 The fresh `gatehouse.agent-provider-execute` callback publishes after receiving a
 successfully parsed final reply or tool-call turn, checking cancellation, and
 committing its application decision. It publishes no hint for failed preparation,
-estimation, rate-limit waiting, HTTP errors (including retryable 429s), invalid
-responses or empty fixed history. A successful retry publishes only after its own
-provider use and application-decision commit.
+estimation, rate-limit waiting, HTTP errors (including retryable 429s), or invalid
+responses. A successful retry publishes only after its own provider use and
+application-decision commit.
 
-The base is the first ID in that request's selected history. Publication identity
+The base is the first ID in the sent event stream. Normally that's the first
+selected history event; when history is empty, only explicit-cache requests
+publish, using the pinned owning request as their base. Publication identity
 is local to the execution callback: it combines the selected provider/credential
 snapshot with the actual sent request's static wire fields, excluding only the
 conversation. Effective output-cap changes are included where the protocol sends

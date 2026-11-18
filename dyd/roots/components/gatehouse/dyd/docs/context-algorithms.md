@@ -84,9 +84,10 @@ assembles the actual request after waiting. Each HTTP retry follows the same
 preparation path. Bodies and rendered fragments belong to their assembly/attempt;
 DBOS stores initial IDs and small decisions/references, not transcript bodies.
 
-TADW presents one user message containing history XML, retained tooling XML and a
-trailing `<hints>` block identifying the agent, message to answer and tooling
-start. The hints' exact bytes are reserved before tooling selection and rendering;
+TADW presents each history and retained tooling event as a separate XML user
+message. The final user message contains only the `<hints>` block identifying the
+agent, message to answer and tooling start. The hints' exact bytes are reserved
+before tooling selection and rendering;
 they are derived from the owning request, not checkpointed or stored as shared
 cache-alignment hints. Native Lisp tools and final-response schemas remain declared normally.
 Incoming tool decisions share general validation with MCMTR; only MCMTR applies

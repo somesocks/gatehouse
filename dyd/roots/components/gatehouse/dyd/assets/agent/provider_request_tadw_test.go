@@ -51,7 +51,7 @@ func tadwProviderFixture(t *testing.T, protocol string) (*database.WorkspaceAgen
 
 // Inspect the marshalled body, not just the intermediate structs. JSON escaping
 // is transport encoding only; decoded user content must be the exact XML bytes.
-func tadwProviderUserContent(t *testing.T, request agentProviderRequest) (string, map[string]json.RawMessage) {
+func tadwProviderUserMessages(t *testing.T, request agentProviderRequest) ([]string, map[string]json.RawMessage) {
 	t.Helper()
 	encoded, err := json.Marshal(request.body())
 	if err != nil {
@@ -75,26 +75,35 @@ func tadwProviderUserContent(t *testing.T, request agentProviderRequest) (string
 	if err := json.Unmarshal(wire[key], &messages); err != nil {
 		t.Fatal(err)
 	}
-	users := 0
-	content := ""
+	var contents []string
 	for index, message := range messages {
 		if message.Role == "user" {
-			users++
-			content = message.Content
-			if index != len(messages)-1 {
-				t.Fatal("user input is not last")
-			}
-		} else if request.Chat == nil || message.Role != "system" {
+			contents = append(contents, message.Content)
+		} else if request.Chat == nil || index != 0 || message.Role != "system" {
 			t.Fatal("unexpected provider role", message.Role)
 		}
 		if len(message.ToolCalls) != 0 || message.ToolCallID != "" || message.Type != "" {
 			t.Fatal("XML was expanded into native tool conversation")
 		}
 	}
-	if users != 1 {
-		t.Fatal("want exactly one user message", users)
+	return contents, wire
+}
+
+func tadwProviderUserContent(t *testing.T, request agentProviderRequest) (string, map[string]json.RawMessage) {
+	t.Helper()
+	messages, wire := tadwProviderUserMessages(t, request)
+	return strings.Join(messages, ""), wire
+}
+
+func tadwExpectedUserMessages(transcript tadwTranscript, hints string) []string {
+	messages := make([]string, 0, len(transcript.History)+len(transcript.Tooling)+1)
+	for _, event := range transcript.History {
+		messages = append(messages, event.XML)
 	}
-	return content, wire
+	for _, event := range transcript.Tooling {
+		messages = append(messages, event.XML)
+	}
+	return append(messages, hints)
 }
 
 func TestTADWProviderRequestWireBodiesAndOwnership(t *testing.T) {
@@ -110,20 +119,29 @@ func TestTADWProviderRequestWireBodiesAndOwnership(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			content, wire := tadwProviderUserContent(t, request)
-			wantContent := transcript.String() + tadwTestHintsXML(t, selected, hints)
-			if content != wantContent || int64(len(content)) != transcript.Bytes()+int64(len(tadwTestHintsXML(t, selected, hints))) || !strings.Contains(content, "café&lt;&amp;") || !strings.HasSuffix(content, "</hints>\n") {
+			messages, wire := tadwProviderUserMessages(t, request)
+			hintsXML := tadwTestHintsXML(t, selected, hints)
+			wantMessages := tadwExpectedUserMessages(transcript, hintsXML)
+			if !slices.Equal(messages, wantMessages) {
+				t.Fatalf("want one user message per event, then hints: got %q, want %q", messages, wantMessages)
+			}
+			content := strings.Join(messages, "")
+			if int64(len(content)) != transcript.Bytes()+int64(len(hintsXML)) || !strings.Contains(content, "café&lt;&amp;") {
 				t.Fatal("content/bytes changed", content)
 			}
 			// The existing preparer is the oracle for all protocol-specific static fields.
-			err, want := agentProviderRequestPrepare(selected, false, []openAICompatibleMessage{{Role: "user", Content: wantContent}})
+			var input []openAICompatibleMessage
+			for _, message := range wantMessages {
+				input = append(input, openAICompatibleMessage{Role: "user", Content: message})
+			}
+			err, want := agentProviderRequestPrepare(selected, false, input)
 			if err != nil || !reflect.DeepEqual(request, want) {
 				t.Fatal("provider settings drifted", err)
 			}
 			static := request
 			if request.Chat != nil {
 				copy := *request.Chat
-				copy.Messages = slices.Clone(copy.Messages[:len(copy.Messages)-1])
+				copy.Messages = slices.Clone(copy.Messages[:len(copy.Messages)-len(messages)])
 				if len(copy.Messages) == 0 {
 					copy.Messages = nil
 				}
@@ -158,10 +176,9 @@ func TestTADWProviderRequestWireBodiesAndOwnership(t *testing.T) {
 				t.Fatal("mutated input")
 			}
 			// A built body owns its content: later slice edits do not rewrite it.
-			original := content
 			transcript.Tooling[0].XML = "mutated"
 			prepared.History.History[0].XML = "mutated"
-			if got, _ := tadwProviderUserContent(t, request); got != original {
+			if got, _ := tadwProviderUserMessages(t, request); !slices.Equal(got, wantMessages) {
 				t.Fatal("request aliases context")
 			}
 		})
@@ -237,16 +254,16 @@ func TestTADWProviderRequestEmptyHistoryAndPromptReplacement(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			content, _ := tadwProviderUserContent(t, request)
-			if content != transcript.String()+tadwTestHintsXML(t, selected, hints) {
+			messages, _ := tadwProviderUserMessages(t, request)
+			if !slices.Equal(messages, tadwExpectedUserMessages(transcript, tadwTestHintsXML(t, selected, hints))) {
 				t.Fatal("empty history changed tooling/hints")
 			}
 			if request.Chat != nil {
-				want := 1
+				want := len(messages)
 				if replacement != "" {
-					want = 2
+					want++
 				}
-				if len(request.Chat.Messages) != want || (want == 2 && request.Chat.Messages[0].Content != replacement) {
+				if len(request.Chat.Messages) != want || (replacement != "" && request.Chat.Messages[0].Content != replacement) {
 					t.Fatal("wrong replacement messages")
 				}
 			} else if request.Responses.Instructions != replacement {
@@ -388,9 +405,10 @@ func TestTADWProviderRequestGrowingPrefixRolloverAndReconstruction(t *testing.T)
 			}
 			initial, cfg = tadwTideBudget(initial, full.ToolingBytes()+hintsBytes)
 			prepared := tadwPreparedHistory{Agent: selected.Ref, Scope: tadwPreparationScope(t, request.Session, selected, false), History: initial}
-			from, prior, priorWire := "", "", ""
+			from := ""
+			var prior []string
 			var early agentProviderRequest
-			historyXML := (tadwTranscript{History: initial.History}).String()
+			hintsXML := tadwTestHintsXML(t, selected, hints)
 			for _, attempt := range []int{11, 40, 60} {
 				window, err := loadTADWToolingWindow(context.Background(), store, initial, request, selected.Ref, tadwToolingThinking(request, attempt), cfg, from, hintsBytes)
 				if err != nil {
@@ -400,20 +418,22 @@ func TestTADWProviderRequestGrowingPrefixRolloverAndReconstruction(t *testing.T)
 				if err != nil {
 					t.Fatal(err)
 				}
-				content, _ := tadwProviderUserContent(t, wire)
-				if !strings.HasPrefix(content, historyXML) || content != window.Transcript.String()+tadwTestHintsXML(t, selected, hints) {
-					t.Fatal("history or whole-event order changed")
+				messages, _ := tadwProviderUserMessages(t, wire)
+				if !slices.Equal(messages, tadwExpectedUserMessages(window.Transcript, hintsXML)) {
+					t.Fatal("event message order or boundaries changed")
 				}
+				events := messages[:len(messages)-1]
+				preservesPrefix := len(events) >= len(prior) && slices.Equal(events[:len(prior)], prior)
 				if attempt == 40 {
-					if from != window.FromEventID || !strings.HasPrefix(content, prior) || strings.HasPrefix(content, priorWire) {
-						t.Fatal("fitting growth must preserve the event prefix, replacing only its old hints suffix")
+					if from != window.FromEventID || !preservesPrefix || len(events) <= len(prior) {
+						t.Fatal("fitting growth must append new event messages before the separate hints message")
 					}
 					early = wire
 				}
-				if attempt == 60 && (window.FromEventID == "" || window.FromEventID == from || strings.HasPrefix(content, prior)) {
+				if attempt == 60 && (window.FromEventID == "" || window.FromEventID == from || preservesPrefix) {
 					t.Fatal("fixture did not roll")
 				}
-				from, prior, priorWire = window.FromEventID, window.Transcript.String(), content
+				from, prior = window.FromEventID, events
 			}
 			// Reconstruct an earlier thinking attempt after a later rollover. Its own
 			// empty boundary still yields the old full tooling, not the latest suffix.

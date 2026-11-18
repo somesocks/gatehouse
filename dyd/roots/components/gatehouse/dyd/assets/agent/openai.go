@@ -15,13 +15,14 @@ import (
 )
 
 type openAICompatibleRequest struct {
-	Model             string                    `json:"model"`
-	Messages          []openAICompatibleMessage `json:"messages"`
-	Tools             []openAICompatibleTool    `json:"tools,omitempty"`
-	ResponseFormat    *openAIResponseFormat     `json:"response_format,omitempty"`
-	ParallelToolCalls bool                      `json:"parallel_tool_calls"`
-	ReasoningEffort   string                    `json:"reasoning_effort,omitempty"`
-	MaxTokens         int                       `json:"max_tokens,omitempty"`
+	Model              string                    `json:"model"`
+	Messages           []openAICompatibleMessage `json:"messages"`
+	Tools              []openAICompatibleTool    `json:"tools,omitempty"`
+	ResponseFormat     *openAIResponseFormat     `json:"response_format,omitempty"`
+	ParallelToolCalls  bool                      `json:"parallel_tool_calls"`
+	ReasoningEffort    string                    `json:"reasoning_effort,omitempty"`
+	MaxTokens          int                       `json:"max_tokens,omitempty"`
+	PromptCacheOptions *openAIPromptCacheMode    `json:"prompt_cache_options,omitempty"`
 }
 
 type openAIResponseFormat struct {
@@ -43,6 +44,18 @@ type openAICompatibleMessage struct {
 	ToolCalls  []openAICompatibleToolCall `json:"tool_calls,omitempty"`
 	Message    *transcriptMessage         `json:"-"`
 	ToolOutput *transcriptToolOutput      `json:"-"`
+	textPart   *openAITextPart
+}
+
+func (message openAICompatibleMessage) MarshalJSON() ([]byte, error) {
+	type plainMessage openAICompatibleMessage
+	if message.textPart == nil {
+		return json.Marshal(plainMessage(message))
+	}
+	return json.Marshal(struct {
+		plainMessage
+		Content [1]openAITextPart `json:"content"`
+	}{plainMessage(message), [1]openAITextPart{*message.textPart}})
 }
 
 type openAICompatibleTool struct {
@@ -88,14 +101,25 @@ type openAICompatibleCompletion struct {
 }
 
 type openAIResponsesRequest struct {
-	Model             string                    `json:"model"`
-	Instructions      string                    `json:"instructions,omitempty"`
-	Input             []json.RawMessage         `json:"input"`
-	Tools             []openAIResponsesTool     `json:"tools,omitempty"`
-	Text              *openAIResponsesText      `json:"text,omitempty"`
-	ParallelToolCalls bool                      `json:"parallel_tool_calls"`
-	Reasoning         *openAIResponsesReasoning `json:"reasoning,omitempty"`
-	MaxOutputTokens   int                       `json:"max_output_tokens,omitempty"`
+	Model              string                    `json:"model"`
+	Instructions       string                    `json:"instructions,omitempty"`
+	Input              []json.RawMessage         `json:"input"`
+	Tools              []openAIResponsesTool     `json:"tools,omitempty"`
+	Text               *openAIResponsesText      `json:"text,omitempty"`
+	ParallelToolCalls  bool                      `json:"parallel_tool_calls"`
+	Reasoning          *openAIResponsesReasoning `json:"reasoning,omitempty"`
+	MaxOutputTokens    int                       `json:"max_output_tokens,omitempty"`
+	PromptCacheOptions *openAIPromptCacheMode    `json:"prompt_cache_options,omitempty"`
+}
+
+type openAIPromptCacheMode struct {
+	Mode string `json:"mode"`
+}
+
+type openAITextPart struct {
+	Type       string                 `json:"type"`
+	Text       string                 `json:"text"`
+	Breakpoint *openAIPromptCacheMode `json:"prompt_cache_breakpoint,omitempty"`
 }
 
 type openAIResponsesText struct {

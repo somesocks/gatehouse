@@ -66,6 +66,14 @@ func tadwHistoryProviderTemplate(session model.SessionRef, selected *database.Wo
 	if err != nil {
 		return tadwHistoryCacheScope{}, agentProviderRequest{}, err
 	}
+	if tadwSupportsExplicitCache(selected) {
+		options := &openAIPromptCacheMode{Mode: "explicit"}
+		if template.Chat != nil {
+			template.Chat.PromptCacheOptions = options
+		} else {
+			template.Responses.PromptCacheOptions = options
+		}
+	}
 	cacheScope, err := tadwPreparationCacheScope(selected)
 	if err != nil {
 		return tadwHistoryCacheScope{}, agentProviderRequest{}, err

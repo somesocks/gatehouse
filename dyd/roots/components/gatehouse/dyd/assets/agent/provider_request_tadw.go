@@ -1,23 +1,64 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"gatehouse/database"
 )
 
-// The conversation is one user message containing history XML followed by
-// retained tooling XML and a trailing request-orientation hints block. Event
-// fragments remain unchanged. Bump this salt when provider packaging changes.
-const tadwProviderConversationVersion = "tadw-single-user-xml-v2"
+// Each event occupies its own user message, followed by a separate orientation
+// message. Bump this salt when provider packaging changes.
+const tadwProviderConversationVersion = "tadw-event-user-xml-v3"
+const tadwMaxProviderBreakpoints = 4
+
+// OpenAI documents explicit breakpoints from GPT-5.6 onward on its public APIs.
+// Compatible gateways and the Codex backend need not support those fields.
+func tadwSupportsExplicitCache(selected *database.WorkspaceAgentModel) bool {
+	if selected.Endpoint == nil {
+		return false
+	}
+	switch selected.Protocol {
+	case "openai-responses":
+		if *selected.Endpoint != "https://api.openai.com/v1/responses" {
+			return false
+		}
+	case "openai-chat-completions":
+		if *selected.Endpoint != "https://api.openai.com/v1/chat/completions" {
+			return false
+		}
+	default:
+		return false
+	}
+	name, ok := strings.CutPrefix(selected.Model, "gpt-")
+	if !ok {
+		return false
+	}
+	version, _, _ := strings.Cut(name, "-")
+	major, minor, hasMinor := strings.Cut(version, ".")
+	majorNumber, err := strconv.ParseUint(major, 10, 32)
+	if err != nil {
+		return false
+	}
+	var minorNumber uint64
+	if hasMinor {
+		minorNumber, err = strconv.ParseUint(minor, 10, 32)
+		if err != nil {
+			return false
+		}
+	}
+	return majorNumber > 5 || majorNumber == 5 && minorNumber >= 6
+}
 
 // agentProviderRequestPrepareTADW assembles one attempt's wire request.
 // The inputs must come from history preparation and request-tooling assembly.
 // It does not select/roll windows, hydrate/render events, access DBOS/storage,
 // send requests or publish hints. Treat selected as immutable during this call.
-func agentProviderRequestPrepareTADW(selected *database.WorkspaceAgentModel, projectChat bool, prepared tadwPreparedHistory, transcript tadwTranscript, limits tadwWindowConfig, hints tadwRequestHints) (error, agentProviderRequest) {
+func agentProviderRequestPrepareTADW(selected *database.WorkspaceAgentModel, projectChat bool, prepared tadwPreparedHistory, transcript tadwTranscript, limits tadwWindowConfig, hints tadwRequestHints, cacheCandidates ...string) (error, agentProviderRequest) {
 	scope, request, err := tadwHistoryProviderTemplate(prepared.Scope.Session, selected, projectChat)
 	if err != nil {
 		return err, agentProviderRequest{}
@@ -63,11 +104,59 @@ func agentProviderRequestPrepareTADW(selected *database.WorkspaceAgentModel, pro
 		used += fragment.Bytes()
 		seen[fragment.ID] = true
 	}
-	message := openAICompatibleMessage{Role: "user", Content: transcript.String() + suffix}
+	var explicit *openAIPromptCacheMode
 	if request.Chat != nil {
-		request.Chat.Messages = append(request.Chat.Messages, message)
+		explicit = request.Chat.PromptCacheOptions
 	} else {
-		request.Responses.Input = openAIResponsesInput([]openAICompatibleMessage{message})
+		explicit = request.Responses.PromptCacheOptions
 	}
+	var marks map[string]bool
+	if explicit != nil {
+		marks = map[string]bool{transcript.Tooling[len(transcript.Tooling)-1].ID: true}
+		if len(transcript.History) != 0 {
+			marks[transcript.History[len(transcript.History)-1].ID] = true
+		}
+		for _, id := range cacheCandidates {
+			if len(marks) == tadwMaxProviderBreakpoints {
+				break
+			}
+			if seen[id] {
+				marks[id] = true
+			}
+		}
+	}
+	appendUser := func(id, content string) {
+		var breakpoint *openAIPromptCacheMode
+		if marks[id] {
+			breakpoint = explicit
+			request.tadwBreakpoints = append(request.tadwBreakpoints, id)
+		}
+		switch {
+		case request.Chat != nil:
+			message := openAICompatibleMessage{Role: "user", Content: content}
+			if explicit != nil {
+				message.textPart = &openAITextPart{Type: "text", Text: content, Breakpoint: breakpoint}
+			}
+			request.Chat.Messages = append(request.Chat.Messages, message)
+		case explicit != nil:
+			request.Responses.Input = append(request.Responses.Input, tadwExplicitCacheMessage(content, breakpoint))
+		default:
+			request.Responses.Input = append(request.Responses.Input, openAIResponsesMessage("user", content))
+		}
+	}
+	for _, events := range [][]tadwRenderedEvent{transcript.History, transcript.Tooling} {
+		for _, event := range events {
+			appendUser(event.ID, event.XML)
+		}
+	}
+	appendUser("", suffix) // Orientation is outside all reusable prefixes.
 	return nil, request
+}
+
+func tadwExplicitCacheMessage(text string, breakpoint *openAIPromptCacheMode) json.RawMessage {
+	encoded, _ := json.Marshal(struct {
+		Role    string            `json:"role"`
+		Content [1]openAITextPart `json:"content"`
+	}{Role: "user", Content: [1]openAITextPart{{Type: "input_text", Text: text, Breakpoint: breakpoint}}})
+	return encoded
 }

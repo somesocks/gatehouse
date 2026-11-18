@@ -3,9 +3,11 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -178,13 +180,31 @@ func TestTADWNormalReplyHintPublication(t *testing.T) {
 }
 
 func TestTADWNormalReplyConsumesPublishedHint(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { liveProviderReply(w, "openai-responses", 0) }))
+	bodies := make(chan []byte, 3)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		select {
+		case bodies <- body:
+		default:
+			t.Error("unexpected extra provider call")
+		}
+		tool := 0
+		if calls.Add(1) == 1 {
+			tool = 1
+		}
+		liveProviderReply(w, "openai-responses", tool)
+	}))
 	defer server.Close()
 	f := newTADWLiveFixture(t, filepath.Join(t.TempDir(), "reuse.sqlite"), server.URL, "openai-responses", config.AgentModelCompaction{TADW: &config.TADWConfig{ContextMaxBytes: 8192, HistoryMaxBytes: 4096, HistoryMinBytes: 1}})
 	captureLiveTADWHintWrites(t, f.store)
 	f.submit(t, true)
-	if outcome := f.outcome(t); outcome.Kind != model.SessionEventKindAgentSuccess {
-		t.Fatal(outcome.Payload)
+	firstOutcome := f.outcome(t)
+	if firstOutcome.Kind != model.SessionEventKindAgentSuccess {
+		t.Fatal(firstOutcome.Payload)
 	}
 	id, err := typed_id.New(typed_id.SessionEvent)
 	if err != nil {
@@ -192,6 +212,7 @@ func TestTADWNormalReplyConsumesPublishedHint(t *testing.T) {
 	}
 	next := f.message
 	next.Ref.Id = id
+	next.Parent = &firstOutcome.Ref
 	var agentID string
 	if err := f.store.QueryRow(`SELECT id FROM gatehouse_workspace_agents LIMIT 1`).Scan(&agentID); err != nil {
 		t.Fatal(err)
@@ -204,6 +225,23 @@ func TestTADWNormalReplyConsumesPublishedHint(t *testing.T) {
 	second.message = next
 	if outcome := second.outcome(t); outcome.Kind != model.SessionEventKindAgentSuccess {
 		t.Fatal(outcome.Payload)
+	}
+	if calls.Load() != 3 || len(bodies) != 3 {
+		t.Fatal("expected two provider calls on the first turn and one on its reply", calls.Load())
+	}
+	first, afterTool, followUp := liveUserMessages(t, <-bodies), liveUserMessages(t, <-bodies), liveUserMessages(t, <-bodies)
+	firstEvents, toolEvents, replyEvents := first[:len(first)-1], afterTool[:len(afterTool)-1], followUp[:len(followUp)-1]
+	if len(toolEvents) != len(firstEvents)+2 || !slices.Equal(firstEvents, toolEvents[:len(firstEvents)]) ||
+		!strings.HasPrefix(toolEvents[len(firstEvents)], "<tool.request ") || !strings.HasPrefix(toolEvents[len(firstEvents)+1], "<tool.success ") {
+		t.Fatal("tool loop did not append separate request/result items after unchanged event messages", afterTool)
+	}
+	if len(replyEvents) != len(toolEvents)+3 || !slices.Equal(toolEvents, replyEvents[:len(toolEvents)]) ||
+		!strings.HasPrefix(replyEvents[len(toolEvents)], "<agent.success ") || !strings.HasPrefix(replyEvents[len(toolEvents)+1], "<message ") ||
+		!strings.HasPrefix(replyEvents[len(toolEvents)+2], "<agent.request ") {
+		t.Fatal("thread reply did not preserve event messages from the previous tool loop", followUp)
+	}
+	if first[len(first)-1] != afterTool[len(afterTool)-1] || first[len(first)-1] == followUp[len(followUp)-1] {
+		t.Fatal("hints changed within the same request or were not updated for the follow-up")
 	}
 	rows, err := f.store.Query(`SELECT output FROM operation_outputs WHERE function_name='gatehouse.tadw-initial-history' ORDER BY workflow_uuid`)
 	if err != nil {
@@ -228,7 +266,7 @@ func TestTADWNormalReplyConsumesPublishedHint(t *testing.T) {
 	if len(histories) != 2 || len(histories[0]) != 1 || len(histories[1]) <= 1 || histories[1][0] != histories[0][0] {
 		t.Fatal("next request must align to the published eligible base", histories)
 	}
-	if writes := liveTADWHintWrites(t, f.store); writes != 2 {
+	if writes := liveTADWHintWrites(t, f.store); writes != 3 {
 		t.Fatal("each actual provider use must publish/touch", writes)
 	}
 	var count int
