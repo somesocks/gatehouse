@@ -146,9 +146,9 @@ func TestValidateInputResponseEvent(t *testing.T) {
 func TestOpenAISystemPromptFor(t *testing.T) {
 	customPrompt := "Custom instructions."
 	emptyPrompt := ""
-	selected := &database.WorkspaceAgentModel{Alias: "luna-high"}
+	selected := &database.WorkspaceAgentModel{Ref: model.WorkspaceAgentRef{Id: "wag_00000000000000000000000001"}, Alias: "luna-high"}
 	sharedPrompt := openAISystemPromptFor(selected, false)
-	if !strings.HasPrefix(sharedPrompt, "# Role\n\nYour name is @luna-high.\nYou are an agent in a multi-user, multi-bot chat.\nYour job is to handle user requests directed at you (but not others).\n") || !strings.Contains(sharedPrompt, "# Tools\n") {
+	if !strings.HasPrefix(sharedPrompt, "# Role\n\nYour name is @luna-high (id wag_00000000000000000000000001).\nYou are an agent in a multi-user, multi-bot chat.\nYour job is to handle user requests directed at you (but not others).\n") || !strings.Contains(sharedPrompt, "# Tools\n") {
 		t.Fatalf("system prompt does not render the selected agent's role: %q", sharedPrompt)
 	}
 	for _, instruction := range []string{"You are persistent, honest, and thorough.", "You always verify your work before replying.", "You do not lie about completing a task or give false information."} {
@@ -156,9 +156,9 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 			t.Fatalf("system prompt lost role instruction %q", instruction)
 		}
 	}
-	other := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "team/sol"}, false)
-	if !strings.Contains(other, "Your name is @team/sol.") || strings.Contains(other, "@luna-high") || other == sharedPrompt {
-		t.Fatalf("system prompt does not use the other agent's handle: %q", other)
+	other := openAISystemPromptFor(&database.WorkspaceAgentModel{Ref: model.WorkspaceAgentRef{Id: "wag_00000000000000000000000002"}, Alias: "team/sol"}, false)
+	if !strings.Contains(other, "Your name is @team/sol (id wag_00000000000000000000000002).") || strings.Contains(other, "@luna-high") || strings.Contains(other, selected.Ref.Id) {
+		t.Fatalf("system prompt does not use the other agent's handle and ID: %q", other)
 	}
 	for name, prompt := range map[string]*string{
 		"default": nil,
@@ -166,7 +166,7 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 		"empty":   &emptyPrompt,
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "luna-high", SystemPrompt: prompt}, false)
+			got := openAISystemPromptFor(&database.WorkspaceAgentModel{Ref: selected.Ref, Alias: "luna-high", SystemPrompt: prompt}, false)
 			if name == "default" && got != sharedPrompt {
 				t.Fatalf("system prompt = %q, want shared prompt", got)
 			}

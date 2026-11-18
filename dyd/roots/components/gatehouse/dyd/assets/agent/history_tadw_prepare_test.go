@@ -99,7 +99,7 @@ func TestTADWHistoryPreparationEffectiveConfigurationChanges(t *testing.T) {
 		mutate         func(*database.WorkspaceAgentModel)
 		scope, profile bool
 	}{
-		{"workspace-agent", func(s *database.WorkspaceAgentModel) { s.Ref.Id = fmt.Sprintf("wag_%026d", 2) }, true, false},
+		{"workspace-agent", func(s *database.WorkspaceAgentModel) { s.Ref.Id = fmt.Sprintf("wag_%026d", 2) }, true, true},
 		{"model-reference", func(s *database.WorkspaceAgentModel) { s.AgentModel.Id = fmt.Sprintf("amd_%026d", 2) }, true, false},
 		{"provider-reference", func(s *database.WorkspaceAgentModel) { s.ProviderID = fmt.Sprintf("apr_%026d", 2) }, true, false},
 		{"endpoint", func(s *database.WorkspaceAgentModel) { *s.Endpoint = "https://another.invalid/inference" }, true, false},

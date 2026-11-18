@@ -166,6 +166,57 @@ func TestTADWProviderRequestWireBodiesAndOwnership(t *testing.T) {
 	}
 }
 
+func TestTADWProviderRequestBindsIdentityToRecipientID(t *testing.T) {
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "w"}, Id: "s"}
+	aliases := []string{"luna-low", "luna-medium", "luna-high"}
+	targets := make([]model.MessageTarget, len(aliases))
+	for i, alias := range aliases {
+		targets[i] = model.MessageTarget{Ref: model.MessageTargetRef{Kind: "agent", Id: fmt.Sprintf("wag_%026d", i+1)}, Alias: &alias}
+	}
+	message := tadwTestEvent("message.text", map[string]interface{}{"text": "Hi, who are you?", "targets": targets})
+	message.Ref = model.SessionEventRef{Session: session, Id: fmt.Sprintf("sev_%026d", 1)}
+	message.Parent = nil
+	history := tadwAdapterRender(t, []model.SessionEvent{message})
+
+	for i, alias := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			selected := tadwPreparationTestAgent(session)
+			selected.Alias = alias
+			selected.Ref.Id = targets[i].Ref.Id
+			selected.SystemPrompt = nil
+			owner := tadwTestEvent("agent.request", map[string]interface{}{"agent": selected.Ref.Id})
+			owner.Ref = model.SessionEventRef{Session: session, Id: fmt.Sprintf("sev_%026d", 10)}
+			owner.Parent = &message.Ref
+			tooling := tadwAdapterRender(t, []model.SessionEvent{owner})
+			initial := tadwInitialHistory{History: history, Window: tadwHistoryWindow{EventIDs: []string{message.Ref.Id}, BaseEventID: message.Ref.Id, HistoryBytes: tadwRenderedBytes(history)}}
+			initial, cfg := tadwTideBudget(initial, tadwRenderedBytes(tooling)+100)
+			prepared := tadwPreparedHistory{Agent: selected.Ref, Scope: tadwPreparationScope(t, session, selected, false), History: initial}
+			transcript := tadwTranscript{History: history, Tooling: tooling}
+			err, request := agentProviderRequestPrepareTADW(selected, false, prepared, transcript, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			content, wire := tadwProviderUserContent(t, request)
+			var instructions string
+			if err := json.Unmarshal(wire["instructions"], &instructions); err != nil {
+				t.Fatal(err)
+			}
+			want := fmt.Sprintf("# Role\n\nYour name is @%s (id %s).\n", alias, selected.Ref.Id)
+			if !strings.HasPrefix(instructions, want) {
+				t.Fatalf("wire instructions do not bind the selected alias to its recipient ID: %q", instructions)
+			}
+			for _, target := range targets {
+				if !strings.Contains(content, `<recipient id="`+target.Ref.Id+`" />`) {
+					t.Fatalf("wire input lost recipient %q: %s", target.Ref.Id, content)
+				}
+			}
+			if !strings.Contains(content, tooling[0].XML) {
+				t.Fatalf("wire input lost the selected agent's owning request: %s", content)
+			}
+		})
+	}
+}
+
 func TestTADWProviderRequestEmptyHistoryAndPromptReplacement(t *testing.T) {
 	for _, protocol := range []string{"openai-chat-completions", "openai-responses", config.AgentProviderProtocolOpenAICodex} {
 		for _, replacement := range []string{"", "override only"} {

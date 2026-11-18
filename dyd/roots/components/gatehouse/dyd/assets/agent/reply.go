@@ -2126,7 +2126,7 @@ func openAISystemPromptFor(selected *database.WorkspaceAgentModel, projectChat b
 		return *selected.SystemPromptReplacement
 	}
 	var role, workflow strings.Builder
-	if err := systemPromptRole.Execute(&role, struct{ Handle string }{Handle: "@" + selected.Alias}); err != nil {
+	if err := systemPromptRole.Execute(&role, struct{ Handle, ID string }{Handle: "@" + selected.Alias, ID: selected.Ref.Id}); err != nil {
 		panic(fmt.Sprintf("render system prompt role: %v", err))
 	}
 	if err := systemPromptWorkflow.Execute(&workflow, struct{ ResultInlineBytes int }{ResultInlineBytes: resultInlineLimit(selected)}); err != nil {
