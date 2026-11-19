@@ -52,19 +52,29 @@
       ownedInteractions.has(item.request.ref.id),
     ),
   )
+  const groupAuthor = $derived(
+    displayed.kind === "message.text"
+      ? displayed.payload.author_group
+      : undefined,
+  )
   const name = $derived(
-    displayed.kind === "agent.request"
-      ? agentLabel(displayed.target_agent)
-      : displayed.author_agent
-        ? agentLabel(displayed.author_agent)
-        : (displayed.author_principal?.name ??
-          displayed.author_principal?.alias ??
-          (displayed.kind === "message.text" ? "User" : "Gatehouse")),
+    groupAuthor
+      ? (groupAuthor.name ?? groupAuthor.alias ?? groupAuthor.id)
+      : displayed.kind === "agent.request"
+        ? agentLabel(displayed.target_agent)
+        : displayed.author_agent
+          ? agentLabel(displayed.author_agent)
+          : (displayed.author_principal?.name ??
+            displayed.author_principal?.alias ??
+            (displayed.kind === "message.text" ? "User" : "Gatehouse")),
   )
   const avatarKind = $derived(
-    displayed.author_agent !== undefined || displayed.kind.startsWith("agent.")
-      ? "agent"
-      : "person",
+    groupAuthor
+      ? "group"
+      : displayed.author_agent !== undefined ||
+          displayed.kind.startsWith("agent.")
+        ? "agent"
+        : "person",
   )
   const statusLabel = $derived(
     request

@@ -36,6 +36,7 @@ func TestRenderTADWEventFormats(t *testing.T) {
 		want    string
 	}{
 		{"message", "message.text", map[string]interface{}{"text": "Hello <world> & friends."}, `<message id="e" parent="parent" author="user">Hello &lt;world&gt; &amp; friends.</message>`},
+		{"group message", "message.text", map[string]interface{}{"text": "Hello", "author_group": map[string]any{"id": "grp_00000000000000000000000001", "name": "Research & Design"}}, `<message id="e" parent="parent" author="grp_00000000000000000000000001" author-name="Research &amp; Design">Hello</message>`},
 		{"agent request", "agent.request", map[string]interface{}{"agent": "target"}, `<agent.request id="e" parent="parent" author="user" agent="target" />`},
 		{"agent reply", "agent.success", map[string]interface{}{"text": "Done."}, `<agent.success id="e" parent="parent" author="agent">Done.</agent.success>`},
 		{"empty reply", "agent.success", map[string]interface{}{"text": ""}, `<agent.success id="e" parent="parent" author="agent" />`},

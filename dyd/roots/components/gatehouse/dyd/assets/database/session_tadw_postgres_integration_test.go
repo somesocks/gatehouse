@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gatehouse/database"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -21,6 +22,7 @@ func TestPostgresTADWHistoryCursorIntegration(t *testing.T) {
 	store.SetMaxOpenConns(1)
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: newTypedID(t, typed_id.Workspace)}, Id: newTypedID(t, typed_id.Session)}
 	principal := newTypedID(t, typed_id.Principal)
+	group := newTypedID(t, typed_id.Group)
 	provider := newTypedID(t, typed_id.StorageProvider)
 	object := newTypedID(t, typed_id.StorageObject)
 	file := newTypedID(t, typed_id.SessionFile)
@@ -72,7 +74,9 @@ func TestPostgresTADWHistoryCursorIntegration(t *testing.T) {
 			parent = id(node.parent)
 		}
 		payload := `{"text":"history"}`
-		if node.id == 12 {
+		if node.id == 3 {
+			payload = fmt.Sprintf(`{"text":"from a group","author_group":{"id":%q,"alias":"archived"}}`, group)
+		} else if node.id == 12 {
 			payload = fmt.Sprintf(`{"text":"attached","attachments":[%q]}`, file)
 		}
 		exec(`INSERT INTO gatehouse_session_events (workspace, session, id, parent, kind, author_principal, payload, created_at)
@@ -84,6 +88,18 @@ func TestPostgresTADWHistoryCursorIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
+	assertGroupSender := func(event model.SessionEvent) {
+		t.Helper()
+		sender, err := database.SessionMessageGroupAuthor(event)
+		if err != nil || sender == nil || sender.Id != group || sender.Alias == nil || *sender.Alias != "archived" || event.AuthorPrincipal == nil || event.AuthorPrincipal.Ref.Id != principal {
+			t.Fatalf("request must inherit its parent message's sender without losing its acting principal: %#v, %v", event, err)
+		}
+	}
+	err, request := store.SessionTADWEventGetInSQLTransaction(ctx, tx, model.SessionEventRef{Session: session, Id: id(4)})
+	if err != nil || request == nil {
+		t.Fatalf("read projected request: %v", err)
+	}
+	assertGroupSender(*request)
 	anchor := model.SessionEventRef{Session: session, Id: id(11)}
 	var want []string
 	for _, n := range []int{12, 11, 6, 9, 5, 8, 4, 3, 2, 15, 1} {
@@ -100,6 +116,12 @@ func TestPostgresTADWHistoryCursorIntegration(t *testing.T) {
 		for len(got) < limit && cursor.Next() {
 			event := cursor.Event().Event
 			got = append(got, event.Ref.Id)
+			if event.Ref.Id == id(4) {
+				assertGroupSender(event)
+			}
+			if event.Ref.Id == id(2) && event.Payload["author_group"] != nil {
+				t.Fatalf("personal request gained a group sender: %#v", event.Payload)
+			}
 			if event.Ref.Id == id(12) {
 				err, projected := store.SessionEventFilesHydrateInTransaction(ctx, tx, event)
 				if err != nil {

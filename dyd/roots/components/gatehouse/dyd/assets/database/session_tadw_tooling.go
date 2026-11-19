@@ -85,7 +85,7 @@ func (store *Store) SessionTADWToolingCursor(ctx context.Context, tx *sql.Tx, re
 	if err := ctx.Err(); err != nil {
 		return err, nil
 	}
-	err, root := store.SessionEventGetInSQLTransaction(ctx, tx, request)
+	err, root := store.SessionTADWEventGetInSQLTransaction(ctx, tx, request)
 	if err != nil {
 		return err, nil
 	}

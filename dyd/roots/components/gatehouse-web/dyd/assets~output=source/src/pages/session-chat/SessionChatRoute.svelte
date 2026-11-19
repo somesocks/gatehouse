@@ -3,6 +3,7 @@
     ArrowDown,
     Send,
     AtSign,
+    Slash,
     Paperclip,
     RouterLink,
     StatusPage,
@@ -16,11 +17,17 @@
   } from "../../app/navigation"
   import SessionViewNavigation from "../../session-participants/SessionViewNavigation.svelte"
   import { onMount, tick, untrack } from "svelte"
-  import { createLoadState } from "../../utils/load-state.svelte"
+  import {
+    createAsyncResource,
+    createLoadState,
+  } from "../../utils/load-state.svelte"
   import { fetchChatSession, type MessageTargetRef } from "../../app/chat"
+  import { fetchWorkspaceGroupMemberships, type Group } from "../../app/groups"
   import { useRuntime } from "../../app/runtime.svelte"
   import { routePath, type Route } from "../../route"
   import RecipientPicker from "./RecipientPicker.svelte"
+  import ChatCommandPicker from "./ChatCommandPicker.svelte"
+  import SendAsPicker from "./SendAsPicker.svelte"
   import ConversationBranch from "./ConversationBranch.svelte"
   import ConversationEvent from "./ConversationEvent.svelte"
   import { createChatController } from "./chat-controller.svelte"
@@ -50,6 +57,20 @@
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let mentionOpen = $state(false)
   let mentionStart = -1
+  let commandsOpen = $state(false)
+  let slashTrigger: { index: number; draft: string } | undefined
+  let sendAsOpen = $state(false)
+  let openingSendAs = $state(false)
+  let sendAsCursor: number | undefined
+  let sendAsID = $state("")
+  let sendAsStorageKey = ""
+  const senderGroups = createAsyncResource<Group[]>()
+  const sendAsGroup = $derived(
+    senderGroups.value?.find((group) => group.id === sendAsID),
+  )
+  const sendAsUnavailable = $derived(
+    sendAsID !== "" && senderGroups.lifecycle.state.hasLoaded && !sendAsGroup,
+  )
   let generation = 0
   let startedSessionKey = ""
   let abortController: AbortController | null = null
@@ -162,8 +183,7 @@
   $effect(() => {
     const parentID = currentRoute.parentID ?? ""
     untrack(() => {
-      mentionOpen = false
-      mentionStart = -1
+      closeComposerMenus()
       controller.selectBranch(parentID)
     })
   })
@@ -178,12 +198,15 @@
         ?.parentElement?.querySelector("pre > code")
       if (code) void navigator.clipboard.writeText(code.textContent ?? "")
     }
-    const refreshRecipients = () => void recipients.refresh()
+    const refreshIdentities = () => {
+      void recipients.refresh()
+      if (sendAsID || sendAsOpen) void refreshSenderGroups()
+    }
     document.addEventListener("click", copyCodeBlock)
-    window.addEventListener("focus", refreshRecipients)
+    window.addEventListener("focus", refreshIdentities)
     return () => {
       document.removeEventListener("click", copyCodeBlock)
-      window.removeEventListener("focus", refreshRecipients)
+      window.removeEventListener("focus", refreshIdentities)
     }
   })
 
@@ -197,8 +220,10 @@
     unsubscribe = undefined
     controller.stop()
     recipients.stop()
-    mentionOpen = false
-    mentionStart = -1
+    closeComposerMenus()
+    senderGroups.context("")
+    sendAsID = ""
+    sendAsStorageKey = ""
     session = null
     if (
       auth.state.status === "authenticated" &&
@@ -218,6 +243,7 @@
         unsubscribe = undefined
         controller.stop()
         recipients.stop()
+        senderGroups.stop()
       }
     }
   }
@@ -246,8 +272,17 @@
       startedSessionKey = key
       controller.start(workspaceID, sessionID, signal, currentRoute.parentID)
       const principalID = auth.state.claims?.principal.ref.id
-      if (principalID)
+      if (principalID) {
         recipients.start(principalID, workspaceID, sessionID, signal)
+        sendAsStorageKey = `gatehouse:message-sender-group:${JSON.stringify([principalID, workspaceID, sessionID])}`
+        senderGroups.context(sendAsStorageKey)
+        try {
+          sendAsID = localStorage.getItem(sendAsStorageKey) ?? ""
+        } catch {
+          // Storage may be unavailable.
+        }
+        if (sendAsID) void refreshSenderGroups()
+      }
     } else await Promise.all([controller.refreshEvents(), recipients.refresh()])
     if (isCurrent(value, workspaceID, sessionID, signal))
       subscribe(route, value, signal)
@@ -330,6 +365,8 @@
           signal.aborted
         )
           return
+        if (names.has("session-chat-agent") && (sendAsID || sendAsOpen))
+          void refreshSenderGroups(signal)
         const refreshed = await Promise.all([
           ...(names.has("session-chat-agent") || names.has("session-recipients")
             ? [recipients.refresh(signal)]
@@ -356,20 +393,32 @@
     )
     void activity.poll()
   }
-  function openMentionAfterInput(
-    event: Event,
-    data: string | null,
-    composing = false,
-  ): void {
-    if (mentionOpen || !(event.currentTarget instanceof HTMLTextAreaElement))
+  function closeComposerMenus(): void {
+    mentionOpen = false
+    mentionStart = -1
+    commandsOpen = false
+    slashTrigger = undefined
+    sendAsOpen = false
+    openingSendAs = false
+    sendAsCursor = undefined
+  }
+  function openComposerMenuAfterInput(event: Event, data: string | null): void {
+    if (
+      mentionOpen ||
+      commandsOpen ||
+      sendAsOpen ||
+      openingSendAs ||
+      controller.state.sendingMessage ||
+      !(event.currentTarget instanceof HTMLTextAreaElement)
+    )
       return
     const input = event.currentTarget
-    const start = insertedMentionStart(
-      input.value,
-      input.selectionStart,
-      data,
-      composing,
-    )
+    if (data === "/" && input.value[input.selectionStart - 1] === "/") {
+      slashTrigger = { index: input.selectionStart - 1, draft: input.value }
+      commandsOpen = true
+      return
+    }
+    const start = insertedMentionStart(input.value, input.selectionStart, data)
     if (start === undefined) return
     mentionStart = start
     mentionOpen = true
@@ -397,9 +446,50 @@
     mentionOpen = true
     void recipients.refresh()
   }
+  function refreshSenderGroups(
+    signal = abortController?.signal,
+  ): Promise<boolean> {
+    const workspaceID = currentRoute.workspaceID
+    return senderGroups.load(
+      (signal) => fetchWorkspaceGroupMemberships(workspaceID, signal),
+      signal,
+    )
+  }
+  function openSendAs(): void {
+    sendAsOpen = true
+    void refreshSenderGroups()
+  }
+  function selectSendAsCommand(): void {
+    const trigger = slashTrigger
+    if (trigger && controller.state.messageText === trigger.draft) {
+      const { index, draft } = trigger
+      controller.state.messageText =
+        draft.slice(0, index) + draft.slice(index + 1)
+      sendAsCursor = index
+    }
+    openingSendAs = true
+    commandsOpen = false
+  }
+  function closeCommands(): void {
+    slashTrigger = undefined
+    if (openingSendAs) {
+      openingSendAs = false
+      openSendAs()
+    } else if (!sendAsOpen) focusComposer()
+  }
+  function selectSenderGroup(id: string): void {
+    sendAsID = id
+    if (!sendAsStorageKey) return
+    try {
+      if (id) localStorage.setItem(sendAsStorageKey, id)
+      else localStorage.removeItem(sendAsStorageKey)
+    } catch {
+      // Keep the in-memory selection if storage is unavailable.
+    }
+  }
   async function sendMessage(): Promise<void> {
-    if (!recipients.canSend) return
-    await controller.sendMessage(recipients.state.targets)
+    if (!recipients.canSend || sendAsUnavailable) return
+    await controller.sendMessage(recipients.state.targets, sendAsID)
     void recipients.refresh()
   }
 </script>
@@ -564,7 +654,11 @@
       {#if session !== null}
         <SidebarPage.Footer compact
           ><UI.InputBar
-            overlayOpen={mentionOpen}
+            hasText={controller.state.messageText.length > 0}
+            overlayOpen={mentionOpen ||
+              commandsOpen ||
+              openingSendAs ||
+              sendAsOpen}
             data-pending={controller.state.sendingMessage || undefined}
             aria-busy={controller.state.sendingMessage}
             autocomplete="off"
@@ -573,31 +667,51 @@
               void sendMessage()
             }}
           >
-            {#if recipients.state.targets.length > 0}<UI.InputBarAttachments
-                label="Message recipients"
-              >
-                <UI.InlineButton
-                  type="button"
-                  disabled={controller.state.sendingMessage}
-                  onclick={openRecipients}>To:</UI.InlineButton
-                >
-                {#each recipients.state.targets as ref (targetKey(ref))}<UI.InputRecipient
-                    name={targetLabel(recipients.target(ref))}
-                    unavailable={recipients.state.ready &&
-                      !recipients.available(ref)}
-                    pending={recipients.state.ready &&
-                      recipients.available(ref) &&
-                      !recipients.inChat(ref)}
+            {#if recipients.state.targets.length > 0 || sendAsID}
+              <UI.InputBarAttachments label="Message addressing">
+                {#if recipients.state.targets.length > 0}
+                  <UI.InlineButton
+                    type="button"
                     disabled={controller.state.sendingMessage}
-                    onselect={openRecipients}
-                    onremove={() =>
-                      recipients.select(
-                        recipients.state.targets.filter(
-                          (target) => targetKey(target) !== targetKey(ref),
-                        ),
-                      )}
-                  />{/each}
-              </UI.InputBarAttachments>{/if}
+                    onclick={openRecipients}>To:</UI.InlineButton
+                  >
+                  {#each recipients.state.targets as ref (targetKey(ref))}
+                    <UI.InputRecipient
+                      name={targetLabel(recipients.target(ref))}
+                      unavailable={recipients.state.ready &&
+                        !recipients.available(ref)}
+                      pending={recipients.state.ready &&
+                        recipients.available(ref) &&
+                        !recipients.inChat(ref)}
+                      disabled={controller.state.sendingMessage}
+                      onselect={openRecipients}
+                      onremove={() =>
+                        recipients.select(
+                          recipients.state.targets.filter(
+                            (target) => targetKey(target) !== targetKey(ref),
+                          ),
+                        )}
+                    />
+                  {/each}
+                {/if}
+                {#if sendAsID}
+                  <UI.Row role="group" aria-label="Message sender" wrap={false}>
+                    <UI.InlineButton
+                      type="button"
+                      disabled={controller.state.sendingMessage}
+                      onclick={openSendAs}>Send as:</UI.InlineButton
+                    >
+                    <UI.InputRecipient
+                      name={sendAsGroup?.name ?? sendAsGroup?.alias ?? sendAsID}
+                      unavailable={sendAsUnavailable}
+                      disabled={controller.state.sendingMessage}
+                      onselect={openSendAs}
+                      onremove={() => selectSenderGroup("")}
+                    />
+                  </UI.Row>
+                {/if}
+              </UI.InputBarAttachments>
+            {/if}
             {#if recipients.state.error || (recipients.state.outsideError && recipients.state.targets.some((ref) => !recipients.inChat(ref)))}<UI.Row
                 ><UI.Text as="p" size="small" role="alert"
                   >{recipients.state.error ||
@@ -655,11 +769,15 @@
                   }
                 }}
                 oninput={(event) => {
-                  if (event instanceof InputEvent)
-                    openMentionAfterInput(event, event.data, event.isComposing)
+                  if (
+                    event instanceof InputEvent &&
+                    event.inputType === "insertText" &&
+                    !event.isComposing
+                  )
+                    openComposerMenuAfterInput(event, event.data)
                 }}
                 oncompositionend={(event) =>
-                  openMentionAfterInput(event, event.data)}
+                  openComposerMenuAfterInput(event, event.data)}
               />{/snippet}
             {#snippet leading()}
               <UI.Button
@@ -690,6 +808,22 @@
                   aria-hidden="true"
                 /></UI.Button
               >
+              <UI.Button
+                variant="ghost"
+                size="icon"
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={commandsOpen}
+                aria-label="Chat commands"
+                title="Chat commands"
+                disabled={controller.state.sendingMessage}
+                onclick={() => {
+                  slashTrigger = undefined
+                  commandsOpen = true
+                }}
+              >
+                <Slash size={20} strokeWidth={2.25} aria-hidden="true" />
+              </UI.Button>
             {/snippet}
             {#snippet trailing()}<UI.Button
                 variant="default"
@@ -700,6 +834,7 @@
                 disabled={controller.state.sendingMessage ||
                   !controller.state.canCompose ||
                   !recipients.canSend ||
+                  sendAsUnavailable ||
                   (controller.state.messageText.trim() === "" &&
                     controller.state.composerFiles.length === 0)}
                 >{#if controller.state.sendingMessage}<UI.Spinner
@@ -717,6 +852,25 @@
                   role="alert"
                   aria-live="polite">{controller.state.messageError}</UI.Text
                 >{/if}{/snippet}
+            <ChatCommandPicker
+              bind:open={commandsOpen}
+              onSendAs={selectSendAsCommand}
+              onclose={closeCommands}
+            />
+            <SendAsPicker
+              bind:open={sendAsOpen}
+              groups={senderGroups.value ?? []}
+              selected={sendAsID}
+              loading={senderGroups.lifecycle.loading ||
+                senderGroups.lifecycle.reloading}
+              error={senderGroups.lifecycle.state.error}
+              onselect={selectSenderGroup}
+              onretry={() => void refreshSenderGroups()}
+              onclose={() => {
+                focusComposer(sendAsCursor)
+                sendAsCursor = undefined
+              }}
+            />
             <RecipientPicker
               bind:open={mentionOpen}
               inChat={recipients.state.inChat}

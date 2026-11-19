@@ -62,6 +62,7 @@ func newTADWLiveFixture(t *testing.T, path, endpoint, protocol string, compactio
 	t.Cleanup(ring.Close)
 	state := config.State{
 		Keychains: chains, Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}}, Principals: []config.Principal{{Alias: "alice", Enabled: true}},
+		Groups:          []config.Group{{WorkspaceID: "engineering", Alias: "team", Enabled: true, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}}}},
 		AgentProviders:  []config.AgentProvider{{Alias: "test", Revision: 1, Protocol: protocol, Endpoint: &endpoint, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_TADW_LIVE_API_KEY"}, Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "test", Model: "test-model", Parameters: `{}`, Compaction: compaction, MaxTurns: 8, MaxOutputTokens: 1024, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
@@ -355,6 +356,11 @@ func TestTADWNormalReplyToolingAndRetry(t *testing.T) {
 			}))
 			defer server.Close()
 			f := newTADWLiveFixture(t, filepath.Join(t.TempDir(), "live.sqlite"), server.URL, protocol, config.AgentModelCompaction{TADW: &config.TADWConfig{ContextMaxBytes: 3200, HistoryMaxBytes: 1024, HistoryMinBytes: 1}})
+			var groupID string
+			if err := f.store.QueryRow(`SELECT id FROM gatehouse_groups WHERE alias='team'`).Scan(&groupID); err != nil {
+				t.Fatal(err)
+			}
+			f.message.Payload["author_group"] = model.MessageGroupAuthor{Id: groupID}
 			f.submit(t, true)
 			outcome := f.outcome(t)
 			if outcome.Kind != model.SessionEventKindAgentSuccess {
@@ -373,6 +379,13 @@ func TestTADWNormalReplyToolingAndRetry(t *testing.T) {
 			if outcome.Parent == nil {
 				t.Fatal("reply lost its owning request")
 			}
+			err, request := f.store.SessionEventGet(t.Context(), *outcome.Parent)
+			if err != nil || request == nil || request.AuthorPrincipal == nil || request.AuthorPrincipal.Ref != f.message.AuthorPrincipal.Ref {
+				t.Fatalf("request lost its acting principal: %#v, %v", request, err)
+			}
+			groupAuthor := fmt.Sprintf(`author="%s" author-alias="team"`, groupID)
+			requestXML := fmt.Sprintf(`<agent.request id="%s" parent="%s" %s `, request.Ref.Id, f.message.Ref.Id, groupAuthor)
+			messageXML := fmt.Sprintf(`<message id="%s" %s>`, f.message.Ref.Id, groupAuthor)
 			requestHint := fmt.Sprintf(`<request id="%s" message="%s" />`, outcome.Parent.Id, f.message.Ref.Id)
 			toolingHint := fmt.Sprintf(`<tooling-start id="%s" />`, outcome.Parent.Id)
 			for index, body := range requests {
@@ -380,6 +393,9 @@ func TestTADWNormalReplyToolingAndRetry(t *testing.T) {
 				content, footer := strings.Join(messages[:len(messages)-1], ""), messages[len(messages)-1]
 				if !strings.Contains(content, liveTADWMarker) || strings.Count(content, "<agent.request ") != 1 || len(content)+len(footer) > 3200 {
 					t.Fatalf("attempt %d invalid transcript: %s", index, content)
+				}
+				if !strings.Contains(content, messageXML) || !strings.Contains(content, requestXML) {
+					t.Fatalf("attempt %d did not send both message and request as the group: %s", index, content)
 				}
 				if strings.Contains(content, "<hints>") || !strings.Contains(footer, requestHint) || !strings.Contains(footer, toolingHint) {
 					t.Fatalf("attempt %d lost its separate message/request/tooling orientation: %s", index, footer)

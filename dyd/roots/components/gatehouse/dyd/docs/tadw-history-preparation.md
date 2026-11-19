@@ -54,7 +54,7 @@ check, and an unobservable provider-side routing/model change cannot be detected
 
 - `tadw-history-preparation-v1`.
 - The existing `tadw-history-v1` selection/hint algorithm identifier.
-- `tadw-flat-xml-v1`, an internal transcript-format compatibility salt.
+- `tadw-flat-xml-v2`, an internal transcript-format compatibility salt.
 - `tadw-event-user-xml-v3`, the provider packaging salt for one message per
   event and a separate orientation message (see [provider input](tadw-provider-input.md)).
 - The **actual static provider wire body**, obtained by preparing without a

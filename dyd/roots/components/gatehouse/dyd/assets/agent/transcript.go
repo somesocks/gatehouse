@@ -232,12 +232,28 @@ func transcriptOmittedEvent(event model.SessionEvent, kind, status, callID strin
 	return result.String()
 }
 
+func transcriptGroupAuthorLabels(result *strings.Builder, group *model.MessageGroupAuthor) {
+	if group.Alias != nil {
+		transcriptAttribute(result, "author-alias", *group.Alias)
+	}
+	if group.Name != nil {
+		transcriptAttribute(result, "author-name", *group.Name)
+	}
+}
+
 func transcriptMCMTRTreeAttributes(result *strings.Builder, event model.SessionEvent) {
 	root, enabled := event.Payload["_mcmtr_root"].(string)
+	if enabled {
+		transcriptAttribute(result, "root-id", root)
+	}
+	if group, _ := database.SessionMessageGroupAuthor(event); group != nil {
+		transcriptAttribute(result, "author", "group:"+group.Id)
+		transcriptGroupAuthorLabels(result, group)
+		return
+	}
 	if !enabled {
 		return
 	}
-	transcriptAttribute(result, "root-id", root)
 	if event.AuthorPrincipal != nil {
 		transcriptAttribute(result, "author", "principal:"+event.AuthorPrincipal.Ref.Id)
 	} else if event.AuthorAgent != nil {

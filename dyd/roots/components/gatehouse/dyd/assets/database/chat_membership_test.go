@@ -124,6 +124,44 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 		err, _ := store.SessionMessagesCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Kind: "message.text", AuthorPrincipal: &model.Principal{Ref: actor, Enabled: true}, Payload: payload})
 		return err
 	}
+	t.Run("sender group is independent of chat grants and targets", func(t *testing.T) {
+		contacts := groupFor("engineering", "contacts")
+		sendAs := func(actor model.PrincipalRef, groupID string) (error, model.SessionEvent) {
+			id, err := typed_id.New(typed_id.SessionEvent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			forged := "Untrusted label"
+			return store.SessionMessagesCreate(ctx, model.SessionEvent{
+				Ref: model.SessionEventRef{Session: session, Id: id}, Kind: model.SessionEventKindMessageText,
+				AuthorPrincipal: &model.Principal{Ref: actor, Enabled: true},
+				Payload:         map[string]any{"text": "From a group", "author_group": model.MessageGroupAuthor{Id: groupID, Alias: &forged, Name: &forged}},
+			})
+		}
+		err, sent := sendAs(alice, contacts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		group, err := database.SessionMessageGroupAuthor(sent)
+		if err != nil || group == nil || group.Alias == nil || *group.Alias != "contacts" || group.Name != nil || sent.AuthorPrincipal.Ref != alice {
+			t.Fatalf("unexpected sender snapshot: %#v %v", group, err)
+		}
+		if err, visible := store.SessionGet(ctx, session, carol); err != nil || visible != nil {
+			t.Fatalf("sending as a group shared the chat with its members: %#v %v", visible, err)
+		}
+		if err, _ := sendAs(bob, contacts); !errors.Is(err, database.ErrMessageSenderGroup) {
+			t.Fatalf("sent as a group without membership: %v", err)
+		}
+		if _, err := store.Exec(`UPDATE gatehouse_groups SET enabled=FALSE WHERE workspace_id=`+p(1)+` AND id=`+p(2), workspace.Id, contacts); err != nil {
+			t.Fatal(err)
+		}
+		if err, _ := sendAs(alice, contacts); !errors.Is(err, database.ErrMessageSenderGroup) {
+			t.Fatalf("sent as a disabled group: %v", err)
+		}
+		if _, err := store.Exec(`UPDATE gatehouse_groups SET enabled=TRUE WHERE workspace_id=`+p(1)+` AND id=`+p(2), workspace.Id, contacts); err != nil {
+			t.Fatal(err)
+		}
+	})
 	botRef := model.MessageTargetRef{Kind: "agent", Id: bot}
 	err, current, _ := store.SessionMessageTargetsSearch(ctx, session, alice, database.SessionParticipantSearch{Kind: "agent", Limit: 50})
 	if err != nil || len(current) != 0 {

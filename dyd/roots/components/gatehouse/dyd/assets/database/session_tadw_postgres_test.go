@@ -466,7 +466,7 @@ func TestPostgresTADWToolingCursorBindingAndHydration(t *testing.T) {
 			thinkingRow[6] = nil
 			thinkingRow[7] = agent.Id
 			script.steps = []tadwSQLStep{
-				{check: tadwSQLContains(t, "events.id = $3"), columns: 12, values: [][]driver.Value{tadwSQLEvent(request.Id, nil, "agent.request", `{"agent":"agent"}`, at)}},
+				{check: tadwSQLContains(t, "events.id=$3", "jsonb_set(events.payload, '{author_group}'"), columns: 12, values: [][]driver.Value{tadwSQLEvent(request.Id, nil, "agent.request", `{"agent":"agent"}`, at)}},
 				{check: tadwSQLContains(t, "events.id = $3"), columns: 12, values: [][]driver.Value{thinkingRow}},
 			}
 			if option.FromEventID != "" {

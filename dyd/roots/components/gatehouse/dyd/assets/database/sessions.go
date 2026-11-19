@@ -775,6 +775,9 @@ func (store *Store) sessionEventsCreateBatchInTransaction(ctx context.Context, t
 		if createMessage {
 			switch event.Kind {
 			case model.SessionEventKindMessageText:
+				if err := store.sessionMessageGroupAuthorSnapshot(ctx, transaction, event); err != nil {
+					return err, nil
+				}
 				if err := store.sessionMessageTargetsSnapshot(ctx, transaction, event); err != nil {
 					return err, nil
 				}
@@ -984,7 +987,8 @@ func (store *Store) sessionAgentRequestEventsGet(request model.SessionEventRef, 
 	return sessionEventRowsGet(rows, request.Session)
 }
 
-const sessionEventColumns = `events.id, events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.metrics, events.created_at`
+const sessionEventAuthorColumns = `events.id, events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway`
+const sessionEventColumns = sessionEventAuthorColumns + `, events.payload, events.metrics, events.created_at`
 
 func (store *Store) SessionEventsPageGet(ctx context.Context, session model.SessionRef, afterID string, limit int) (error, []model.SessionEvent) {
 	if limit < 0 {

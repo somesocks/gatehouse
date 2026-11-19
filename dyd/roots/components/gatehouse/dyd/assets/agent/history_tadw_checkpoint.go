@@ -92,7 +92,7 @@ func rehydrateTADWHistory(ctx context.Context, store *database.Store, session mo
 		if err := ctx.Err(); err != nil {
 			return tadwInitialHistory{}, err
 		}
-		err, event := store.SessionEventGetInSQLTransaction(ctx, tx, model.SessionEventRef{Session: session, Id: id})
+		err, event := store.SessionTADWEventGetInSQLTransaction(ctx, tx, model.SessionEventRef{Session: session, Id: id})
 		if err != nil {
 			return tadwInitialHistory{}, fmt.Errorf("rehydrate TADW event %q: %w", id, err)
 		}

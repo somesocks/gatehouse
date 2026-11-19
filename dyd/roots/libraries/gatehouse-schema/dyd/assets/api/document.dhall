@@ -127,12 +127,18 @@ let MessageTarget =
         }
         s.record.meta::{ name = Some "TranscriptMessageTarget" }
 
+let MessageGroupAuthor =
+      s.record.from
+        s.record.props::{ required = toMap { id = text }, optional = toMap { alias = text, name = text } }
+        s.record.meta::{ name = Some "TranscriptMessageGroupAuthor" }
+
 let message =
       s.record.from
         s.record.props::{
         , required = [] : List { mapKey : Text, mapValue : s.type }
         , optional = toMap
             { text = text
+            , author_group = s.reference.from s.reference.props::{ to = "TranscriptMessageGroupAuthor" } s.reference.meta::{=}
             , targets = s.list.from s.list.props::{ values = s.reference.from s.reference.props::{ to = "TranscriptMessageTarget" } s.reference.meta::{=} } s.list.meta::{=}
             , attachments = attachments
             }
@@ -315,6 +321,7 @@ in  Document::{
         , s.root.from File s.root.meta::{ name = "TranscriptFile" }
         , s.root.from MessageTargetRef s.root.meta::{ name = "TranscriptMessageTargetRef" }
         , s.root.from MessageTarget s.root.meta::{ name = "TranscriptMessageTarget" }
+        , s.root.from MessageGroupAuthor s.root.meta::{ name = "TranscriptMessageGroupAuthor" }
         , s.root.from TranscriptEvent s.root.meta::{ name = "TranscriptEvent" }
         , s.root.from ConversationEntry s.root.meta::{ name = "ConversationEntry" }
         , s.root.from ConversationAgentState s.root.meta::{ name = "ConversationAgentState" }

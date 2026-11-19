@@ -9,6 +9,7 @@
     leading,
     trailing,
     feedback,
+    hasText = false,
     overlayOpen = false,
     ...rest
   }: Omit<HTMLFormAttributes, "class" | "style"> & {
@@ -16,13 +17,14 @@
     leading?: Snippet
     trailing?: Snippet
     feedback?: Snippet
+    hasText?: boolean
     overlayOpen?: boolean
   } = $props()
   let element = $state<HTMLFormElement>()
   let editing = $state(false)
   let interacting = $state(false)
   let releaseTimer: ReturnType<typeof setTimeout> | undefined
-  const expanded = $derived(editing || interacting || overlayOpen)
+  const expanded = $derived(editing || hasText || interacting || overlayOpen)
 
   function release(): void {
     clearTimeout(releaseTimer)

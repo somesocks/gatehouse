@@ -52,17 +52,21 @@ func (store *Store) groupMutationAllowed(ctx context.Context, tx *sql.Tx, worksp
 	return nil
 }
 
-func (store *Store) WorkspaceGroupDirectoryGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []SystemGroup) {
+// workspaceMemberGroupSQL is shared by the group directory and send-as validation.
+func (store *Store) workspaceMemberGroupSQL() string {
 	p := keychainPlaceholder(store.kind)
+	return ` FROM gatehouse_groups groups JOIN gatehouse_group_members members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+		WHERE groups.workspace_id = ` + p(1) + ` AND members.principal_id = ` + p(2) + ` AND members.enabled = TRUE
+		AND groups.enabled = TRUE
+		AND ` + workspacePrincipalAdmissionSQL("members.workspace_id", "members.principal_id")
+}
+
+func (store *Store) WorkspaceGroupDirectoryGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []SystemGroup) {
 	suffix, args, err := store.collectionPageSQL(pages, "groups.id", []string{"groups.name", "groups.alias"}, []any{workspace.Id, principal.Id}, "groups.id")
 	if err != nil {
 		return err, nil
 	}
-	rows, err := store.QueryContext(ctx, `SELECT groups.id, groups.workspace_id, groups.alias, groups.name, groups.enabled, groups.revision, members.role
-		FROM gatehouse_groups groups JOIN gatehouse_group_members members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
-		WHERE groups.workspace_id = `+p(1)+` AND members.principal_id = `+p(2)+` AND members.enabled = TRUE
-		AND groups.enabled = TRUE
-		AND `+workspacePrincipalAdmissionSQL("members.workspace_id", "members.principal_id")+suffix, args...)
+	rows, err := store.QueryContext(ctx, `SELECT groups.id, groups.workspace_id, groups.alias, groups.name, groups.enabled, groups.revision, members.role`+store.workspaceMemberGroupSQL()+suffix, args...)
 	if err != nil {
 		return err, nil
 	}

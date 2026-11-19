@@ -1109,6 +1109,17 @@ let MessageTarget =
         }
         s.record.meta::{ name = Some "MessageTarget", description = Some "Recipient identity and server-captured display labels at send time." }
 
+let MessageGroupAuthor =
+      s.record.from
+        s.record.props::{
+        , required = toMap { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{=} }
+        , optional = toMap
+            { alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{=}
+            , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{=}
+            }
+        }
+        s.record.meta::{ name = Some "MessageGroupAuthor", description = Some "Group identity and server-captured display labels at send time. The event author_principal remains the actual sender." }
+
 let MessageTextPayload =
       s.record.from
         s.record.props::{
@@ -1119,6 +1130,7 @@ let MessageTextPayload =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "message text" }
+              , author_group = s.reference.from s.reference.props::{ to = "MessageGroupAuthor" } s.reference.meta::{=}
               , targets =
                   s.list.from
                     s.list.props::{ values = s.reference.from s.reference.props::{ to = "MessageTarget" } s.reference.meta::{=} }
@@ -1669,6 +1681,7 @@ in  Document::{
              , s.root.from AgentFailurePayload s.root.meta::{ name = "AgentFailurePayload" }
               , s.root.from MessageTargetRef s.root.meta::{ name = "MessageTargetRef" }
               , s.root.from MessageTarget s.root.meta::{ name = "MessageTarget" }
+              , s.root.from MessageGroupAuthor s.root.meta::{ name = "MessageGroupAuthor" }
               , s.root.from MessageTextPayload s.root.meta::{ name = "MessageTextPayload" }
              , s.root.from ThinkingRequestPayload s.root.meta::{ name = "ThinkingRequestPayload" }
              , s.root.from ThinkingUpdatePayload s.root.meta::{ name = "ThinkingUpdatePayload" }

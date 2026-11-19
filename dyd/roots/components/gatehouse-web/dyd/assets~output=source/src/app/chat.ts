@@ -174,7 +174,7 @@ export async function fetchChatFiles(
 export async function sendChatMessage(
   workspaceID: string,
   sessionID: string,
-  input: { parent?: string; text?: string; targets?: MessageTargetRef[]; agents?: string[]; attachments?: string[] },
+  input: { parent?: string; send_as?: string; text?: string; targets?: MessageTargetRef[]; agents?: string[]; attachments?: string[] },
   signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages`, {

@@ -1,7 +1,8 @@
 import { mount, tick, unmount } from "svelte"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import ConversationFixture from "./testing/ConversationFixture.svelte"
-import { button, editField } from "../../ui/testing/dialog-dom"
+import { button, editField, escape } from "../../ui/testing/dialog-dom"
+import type { MessageTarget } from "../../app/chat"
 
 vi.mock("../../ui/Navigation.svelte", async () => ({
   default: (await import("../../ui/testing/EmptyConversation.svelte")).default,
@@ -98,11 +99,17 @@ beforeEach(() => {
 afterEach(async () => {
   if (app) await unmount(app)
   app = undefined
+  localStorage.removeItem(
+    'gatehouse:message-sender-group:["principal","workspace","session"]',
+  )
+  localStorage.removeItem(
+    'gatehouse:message-targets:["principal","workspace","session"]',
+  )
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   document.body.innerHTML = ""
 })
-function api() {
+function api(recipients: MessageTarget[] = []) {
   let approved = false
   const sent: ReturnType<typeof event>[] = []
   return vi.fn(async (path: string, options?: RequestInit) => {
@@ -115,6 +122,9 @@ function api() {
         {
           text: body.text ?? "",
           targets: body.targets.map((ref: object) => ({ ref })),
+          ...(body.send_as
+            ? { author_group: { id: body.send_as, name: "Engineering" } }
+            : {}),
         },
         body.parent,
       )
@@ -122,7 +132,23 @@ function api() {
       return Response.json(message)
     }
     if (url.pathname.endsWith("/recipients"))
-      return Response.json({ targets: [], can_manage_participants: false })
+      return Response.json({
+        targets: recipients.filter(
+          ({ ref }) => ref.kind === url.searchParams.get("kind"),
+        ),
+        can_manage_participants: false,
+      })
+    if (url.pathname.endsWith("/groups"))
+      return url.searchParams.get("cursor") === "next-group"
+        ? Response.json([
+            { id: "engineering", name: "Engineering", enabled: true },
+          ])
+        : Response.json(
+            [{ id: "disabled", name: "Disabled group", enabled: false }],
+            {
+              headers: { "X-Next-Cursor": "next-group" },
+            },
+          )
     if (url.pathname.endsWith("/inputs/input/open"))
       return new Response(null, { status: 403 })
     if (url.pathname.endsWith("/approvals/approval")) {
@@ -977,6 +1003,197 @@ it.each(["first", "answer"])(
     ).toContain(parentID === "first" ? "Root question" : "Answer Markdown")
   },
 )
+
+it("collapses the composer only when the text field is empty and unfocused", async () => {
+  vi.stubGlobal("fetch", api())
+  app = mount(ConversationFixture, {
+    target: document.body,
+    props: { initialPath: root, onNavigate: vi.fn() },
+  })
+  const controls = () =>
+    document.querySelector('[data-slot="composer-controls"]')!
+  await vi.waitFor(() => expect(controls()).not.toBeNull())
+  const expanded = () => controls().hasAttribute("data-expanded")
+  const input = document.getElementById("message") as HTMLTextAreaElement
+  expect(expanded()).toBe(false)
+  input.focus()
+  await tick()
+  expect(expanded()).toBe(true)
+  editField("message", "Draft\nwith two lines")
+  input.blur()
+  await tick()
+  expect(expanded()).toBe(true)
+  editField("message", "")
+  await tick()
+  expect(expanded()).toBe(false)
+})
+
+it("sends replies as a group until Send as is cleared, including after reopening the chat", async () => {
+  const recipient = { kind: "principal", id: "alex" } as const
+  const request = api([{ ref: recipient, alias: "alex" }])
+  vi.stubGlobal("fetch", request)
+  app = mount(ConversationFixture, {
+    target: document.body,
+    props: { initialPath: `${root}?parent=answer`, onNavigate: vi.fn() },
+  })
+  const commands = () =>
+    document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Chat commands"]',
+    )
+  await vi.waitFor(() => expect(commands()).not.toBeNull())
+  const trigger = commands()!
+  expect(trigger.previousElementSibling?.getAttribute("aria-label")).toBe(
+    "Choose recipient",
+  )
+  expect(trigger.type).toBe("button")
+  editField("message", "Keep / in this draft")
+  const picker = () => document.querySelector('[role="dialog"]')
+  const item = (value: string) =>
+    picker()?.querySelector<HTMLElement>(
+      `[role="option"][data-value="${value}"]`,
+    )
+  document
+    .querySelector<HTMLButtonElement>('button[aria-label="Choose recipient"]')!
+    .click()
+  await vi.waitFor(() =>
+    expect(item("principal:alex")?.hasAttribute("data-disabled")).toBe(false),
+  )
+  item("principal:alex")!.click()
+  await vi.waitFor(() => expect(picker()).toBeNull())
+  trigger.click()
+  await vi.waitFor(() => expect(item("Send as")).toBeTruthy())
+  item("Send as")!.click()
+  await vi.waitFor(() => expect(item("engineering")).toBeTruthy())
+  expect(item("disabled")).toBeFalsy()
+  item("engineering")!.click()
+  const chip = () => document.querySelector('[aria-label="Message sender"]')
+  await vi.waitFor(() => {
+    expect(picker()).toBeNull()
+    expect(chip()?.textContent).toContain("Engineering")
+    expect(chip()?.parentElement?.firstElementChild?.textContent?.trim()).toBe(
+      "To:",
+    )
+    expect(chip()?.previousElementSibling?.textContent).toContain("@alex")
+  })
+  const posted = () =>
+    request.mock.calls
+      .filter(([path]) => path.endsWith("/messages"))
+      .map(([, init]) => JSON.parse(String(init?.body)))
+  expect(posted()).toEqual([])
+  replyButton().click()
+  await vi.waitFor(() => {
+    expect(posted()).toEqual([
+      {
+        parent: "answer",
+        send_as: "engineering",
+        text: "Keep / in this draft",
+        targets: [recipient],
+      },
+    ])
+    expect(document.getElementById("message")).toHaveProperty("value", "")
+    expect(chip()?.textContent).toContain("Engineering")
+    expect(document.body.textContent?.match(/Engineering/g)).toHaveLength(2)
+  })
+  await unmount(app!)
+  app = mount(ConversationFixture, {
+    target: document.body,
+    props: { initialPath: `${root}?parent=answer`, onNavigate: vi.fn() },
+  })
+  await vi.waitFor(() => expect(chip()?.textContent).toContain("Engineering"))
+  chip()!
+    .querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
+    .click()
+  await vi.waitFor(() => expect(item("clear")?.textContent).toContain("Clear"))
+  item("clear")!.click()
+  await vi.waitFor(() => {
+    expect(chip()).toBeNull()
+    expect(picker()).toBeNull()
+  })
+  editField("message", "Personal reply")
+  await vi.waitFor(() => expect(replyButton().disabled).toBe(false))
+  replyButton().click()
+  await vi.waitFor(() =>
+    expect(posted()[1]).toEqual({
+      parent: "answer",
+      text: "Personal reply",
+      targets: [recipient],
+    }),
+  )
+})
+
+it("opens the composer menus for typed triggers, not pasted text", async () => {
+  vi.stubGlobal("fetch", api())
+  app = mount(ConversationFixture, {
+    target: document.body,
+    props: { initialPath: root, onNavigate: vi.fn() },
+  })
+  await vi.waitFor(() =>
+    expect(document.getElementById("message")).not.toBeNull(),
+  )
+  const input = document.getElementById("message") as HTMLTextAreaElement
+  function insert(
+    value: string,
+    data: string,
+    inputType: string,
+    cursor = value.length,
+  ) {
+    input.value = value
+    input.setSelectionRange(cursor, cursor)
+    input.dispatchEvent(
+      new InputEvent("input", { data, inputType, bubbles: true }),
+    )
+  }
+  input.focus()
+  for (const text of ["/", "@", "https://example.com/@name"]) {
+    insert(text, text, "insertFromPaste")
+    await tick()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(input.value).toBe(text)
+  }
+  insert("A typed /", "/", "insertText")
+  await vi.waitFor(() =>
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Chat commands",
+    ),
+  )
+  escape()
+  await vi.waitFor(() => {
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+  expect(input.value).toBe("A typed /")
+  insert("Keep a/b and /", "/", "insertText", 7)
+  await vi.waitFor(() => {
+    expect(
+      document.querySelector(
+        '[role="dialog"] [role="option"][data-value="Send as"]',
+      ),
+    ).toBeTruthy()
+  })
+  document
+    .querySelector<HTMLElement>(
+      '[role="dialog"] [role="option"][data-value="Send as"]',
+    )!
+    .click()
+  await vi.waitFor(() =>
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Your groups",
+    ),
+  )
+  escape()
+  await vi.waitFor(() => {
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+  expect(input.value).toBe("Keep ab and /")
+  expect(input.selectionStart).toBe(6)
+  insert("Hello @", "@", "insertText")
+  await vi.waitFor(() =>
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Choose recipient",
+    ),
+  )
+})
 
 it("retains a rejected reply draft and shows the send error only once in the composer", async () => {
   const base = api()

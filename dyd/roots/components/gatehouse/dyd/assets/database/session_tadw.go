@@ -40,10 +40,45 @@ var tadwHistoryChildrenSQL = func() string {
  ORDER BY c.created_at ASC,c.id ASC LIMIT 2)`
 }()
 
-const tadwHistoryEventSQL = `SELECT ` + sessionEventColumns + `
+// An internal agent request speaks as the sender of its parent message. Read
+// the saved group snapshot with the event, not a live group or membership, and
+// leave the stored request's acting principal unchanged for authorization/audit.
+const tadwRequestGroupFromParentSQL = ` FROM gatehouse_session_events AS message
+ WHERE message.workspace=events.workspace AND message.session=events.session AND message.id=events.parent
+ AND message.kind='message.text' AND message.author_principal=events.author_principal`
+
+const tadwEventFromSQL = `, events.metrics, events.created_at
  FROM gatehouse_session_events AS events
- LEFT JOIN gatehouse_principals AS principals ON principals.id=events.author_principal
+ LEFT JOIN gatehouse_principals AS principals ON principals.id=events.author_principal`
+
+const tadwHistoryEventSQL = `SELECT ` + sessionEventAuthorColumns + `,
+ CASE WHEN events.kind='agent.request' THEN COALESCE((
+   SELECT json_set(events.payload, '$.author_group', message.payload -> 'author_group')` + tadwRequestGroupFromParentSQL + `
+     AND CASE WHEN json_valid(message.payload) THEN json_type(message.payload, '$.author_group')='object' ELSE FALSE END
+ ), events.payload) ELSE events.payload END` + tadwEventFromSQL + `
  WHERE events.workspace=:workspace AND events.session=:session AND events.id=:event`
+
+// SessionTADWEventGetInSQLTransaction uses the same event projection as the
+// history cursor, including when replay loads only the recorded event IDs.
+func (store *Store) SessionTADWEventGetInSQLTransaction(ctx context.Context, tx *sql.Tx, ref model.SessionEventRef) (error, *model.SessionEvent) {
+	if tx == nil || ref.Session.Workspace.Id == "" || ref.Session.Id == "" || ref.Id == "" {
+		return fmt.Errorf("get TADW event: invalid transaction or event scope"), nil
+	}
+	query := tadwHistoryEventSQL
+	args := []any{sql.Named("workspace", ref.Session.Workspace.Id), sql.Named("session", ref.Session.Id), sql.Named("event", ref.Id)}
+	if store.kind == config.DatabaseKindPostgres {
+		query = tadwPostgresHistoryEventSQL
+		args = []any{ref.Session.Workspace.Id, ref.Session.Id, ref.Id}
+	}
+	err, event := sessionEventFromRow(tx.QueryRowContext(ctx, query, args...), ref.Session)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	return nil, &event
+}
 
 // TADWHistoryEvent is one real event, not a request with an embedded outcome.
 // The cursor emits reverse prompt order: reverse the entire accepted event list

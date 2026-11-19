@@ -12,7 +12,7 @@ import (
 
 // Bump when XML serialization/ordering semantics change incompatibly. This is
 // an internal compatibility salt, not a workspace-agent identity or resource.
-const tadwTranscriptFormatVersion = "tadw-flat-xml-v1"
+const tadwTranscriptFormatVersion = "tadw-flat-xml-v2"
 
 // tadwRenderedEvent is an independent XML fragment. Its trailing newline belongs
 // to the event, so appending another event never changes an existing fragment or
@@ -131,7 +131,16 @@ func renderTADWEvent(event model.SessionEvent) (tadwRenderedEvent, bool, error) 
 	if event.Parent != nil {
 		transcriptAttribute(&result, "parent", event.Parent.Id)
 	}
-	transcriptAttribute(&result, "author", author)
+	group, err := database.SessionMessageGroupAuthor(event)
+	if err != nil {
+		return tadwRenderedEvent{}, false, fmt.Errorf("render TADW event %q: %w", event.Ref.Id, err)
+	}
+	if group != nil {
+		transcriptAttribute(&result, "author", group.Id)
+		transcriptGroupAuthorLabels(&result, group)
+	} else {
+		transcriptAttribute(&result, "author", author)
+	}
 	for _, attribute := range attributes {
 		transcriptAttribute(&result, attribute.name, attribute.value)
 	}

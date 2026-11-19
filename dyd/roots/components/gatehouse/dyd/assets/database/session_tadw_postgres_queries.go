@@ -37,7 +37,9 @@ var tadwPostgresHistoryChildrenSQL = func() string {
  ) AS c`
 }()
 
-const tadwPostgresHistoryEventSQL = `SELECT ` + sessionEventColumns + `
- FROM gatehouse_session_events AS events
- LEFT JOIN gatehouse_principals AS principals ON principals.id=events.author_principal
+const tadwPostgresHistoryEventSQL = `SELECT ` + sessionEventAuthorColumns + `,
+ CASE WHEN events.kind='agent.request' THEN COALESCE((
+   SELECT jsonb_set(events.payload, '{author_group}', message.payload -> 'author_group')` + tadwRequestGroupFromParentSQL + `
+     AND jsonb_typeof(message.payload -> 'author_group')='object'
+ ), events.payload) ELSE events.payload END` + tadwEventFromSQL + `
  WHERE events.workspace=$1 AND events.session=$2 AND events.id=$3`

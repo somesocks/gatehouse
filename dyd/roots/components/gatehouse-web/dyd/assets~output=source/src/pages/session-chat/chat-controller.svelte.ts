@@ -246,6 +246,7 @@ export function createChatController({
 
   async function sendMessage(
     recipients: MessageTargetRef[] = [],
+    senderGroupID?: string,
   ): Promise<void> {
     if (
       context === null ||
@@ -279,6 +280,7 @@ export function createChatController({
         sessionID,
         {
           ...(parentID ? { parent: parentID } : {}),
+          ...(senderGroupID ? { send_as: senderGroupID } : {}),
           ...(text.trim() === "" ? {} : { text }),
           targets,
           ...(attachments.length === 0 ? {} : { attachments }),

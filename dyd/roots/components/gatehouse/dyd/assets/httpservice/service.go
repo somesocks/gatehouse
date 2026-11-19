@@ -431,6 +431,7 @@ type sessionProjectRequest struct {
 
 type sessionMessageRequest struct {
 	Parent      *string                   `json:"parent"`
+	SendAs      *string                   `json:"send_as"`
 	Text        string                    `json:"text"`
 	Agents      []string                  `json:"agents"`
 	Targets     *[]model.MessageTargetRef `json:"targets"`
@@ -1842,6 +1843,10 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "invalid message parent", http.StatusBadRequest)
 			return
 		}
+		if message.SendAs != nil && !typed_id.Valid(typed_id.Group, *message.SendAs) {
+			http.Error(response, "invalid sender group", http.StatusBadRequest)
+			return
+		}
 		if message.Targets != nil && message.Agents != nil {
 			http.Error(response, "specify targets or agents, not both", http.StatusBadRequest)
 			return
@@ -1871,6 +1876,10 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		}
 		err, stored := dispatcher.CreateMessage(request.Context(), event)
 		if err != nil {
+			if errors.Is(err, database.ErrMessageSenderGroup) {
+				http.Error(response, err.Error(), http.StatusForbidden)
+				return
+			}
 			if errors.Is(err, database.ErrSessionParticipantForbidden) {
 				http.Error(response, "You do not have permission to send to recipients outside this chat.", http.StatusForbidden)
 				return
@@ -3219,6 +3228,9 @@ func storageProxy(store *database.Store, tokens *auth.BearerTokens) http.Handler
 
 func messagePayload(message sessionMessageRequest) (error, map[string]interface{}) {
 	payload := model.MessageTextPayload{}
+	if message.SendAs != nil {
+		payload.AuthorGroup = &model.MessageGroupAuthor{Id: *message.SendAs}
+	}
 	if strings.TrimSpace(message.Text) != "" {
 		payload.Text = &message.Text
 	}
@@ -3516,7 +3528,7 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 		var keys []string
 		switch event.Kind {
 		case model.SessionEventKindMessageText:
-			keys = []string{"text", "attachments", "agents", "targets"}
+			keys = []string{"text", "attachments", "agents", "targets", "author_group"}
 		case model.SessionEventKindAgentRequest:
 			keys = []string{"agent"}
 		case model.SessionEventKindAgentSuccess:

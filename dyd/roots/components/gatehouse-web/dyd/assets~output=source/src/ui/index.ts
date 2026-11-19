@@ -115,6 +115,7 @@ export {
   ShieldCheck,
   ShieldQuestionMark,
   ShieldX,
+  Slash,
   Trash2,
   UserRound,
   UsersRound,
