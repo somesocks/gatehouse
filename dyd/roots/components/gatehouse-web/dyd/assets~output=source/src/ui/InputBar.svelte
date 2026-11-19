@@ -61,7 +61,7 @@
 
 <form
   bind:this={element}
-  class="flex w-full min-w-0 flex-col gap-2"
+  class="flex w-full min-w-0 flex-col gap-2 [--composer-control-size:2.75rem] md:[--composer-control-size:2rem]"
   {...rest}
   onfocusin={(event) => {
     if (event.target instanceof HTMLTextAreaElement) editing = true
@@ -91,7 +91,7 @@
     <div
       data-slot="composer-controls"
       data-expanded={expanded ? "" : undefined}
-      class="group/composer grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 [&_[data-slot=button]]:size-11 md:[&_[data-slot=button]]:size-8"
+      class="group/composer grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 [&_[data-slot=button]]:size-(--composer-control-size) [&_[data-slot=button]_svg]:size-(--composer-icon-size)"
     >
       <div class={cn("col-start-1 flex items-center gap-1 md:gap-2", expanded ? "row-start-2" : "row-start-1")}>
         {@render leading?.()}
@@ -106,3 +106,13 @@
   {/if}
   {@render feedback?.()}
 </form>
+
+<style>
+  form {
+    --composer-icon-size: 1rem;
+    --composer-line-height: 1.5rem;
+    /* Match the visible icon edge without moving or shrinking its hit area. */
+    --composer-inset: calc((var(--composer-control-size) - var(--composer-icon-size)) / 2);
+    --composer-compact-padding: calc((var(--composer-control-size) - var(--composer-line-height)) / 2);
+  }
+</style>
