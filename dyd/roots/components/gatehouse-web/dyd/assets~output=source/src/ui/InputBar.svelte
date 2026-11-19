@@ -89,15 +89,15 @@
     <div
       data-slot="composer-controls"
       data-expanded={expanded ? "" : undefined}
-      class="group/composer grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-x-2 gap-y-2 [&_[data-slot=button]]:size-11 md:[&_[data-slot=button]]:size-8"
+      class="group/composer grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 [&_[data-slot=button]]:size-11 md:[&_[data-slot=button]]:size-8"
     >
-      <div class={cn("col-start-1 flex items-center gap-1 md:row-start-2 md:gap-2", expanded ? "row-start-2" : "row-start-1")}>
+      <div class={cn("col-start-1 flex items-center gap-1 md:gap-2", expanded ? "row-start-2" : "row-start-1")}>
         {@render leading?.()}
       </div>
-      <div class={cn("row-start-1 min-w-0 md:col-span-3 md:col-start-1", expanded ? "col-span-3 col-start-1" : "col-start-2")}>
+      <div class={cn("row-start-1 min-w-0", expanded ? "col-span-3 col-start-1" : "col-start-2")}>
         {@render input()}
       </div>
-      <div class={cn("col-start-3 md:row-start-2", expanded ? "row-start-2" : "row-start-1")}>
+      <div class={cn("col-start-3", expanded ? "row-start-2" : "row-start-1")}>
         {@render trailing?.()}
       </div>
     </div>
