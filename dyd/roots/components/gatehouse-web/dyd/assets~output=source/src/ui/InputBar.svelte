@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount, tick, type Snippet } from "svelte"
   import type { HTMLFormAttributes } from "svelte/elements"
-  import { cn } from "../lib/utils"
 
   let {
     children,
@@ -13,7 +12,7 @@
     overlayOpen = false,
     ...rest
   }: Omit<HTMLFormAttributes, "class" | "style"> & {
-    input?: Snippet
+    input?: Snippet<[expanded: boolean]>
     leading?: Snippet
     trailing?: Snippet
     feedback?: Snippet
@@ -61,7 +60,7 @@
 
 <form
   bind:this={element}
-  class="flex w-full min-w-0 flex-col gap-2 [--composer-control-size:2.75rem] md:[--composer-control-size:2rem]"
+  class="flex w-full min-w-0 flex-col gap-2"
   {...rest}
   onfocusin={(event) => {
     if (event.target instanceof HTMLTextAreaElement) editing = true
@@ -91,15 +90,13 @@
     <div
       data-slot="composer-controls"
       data-expanded={expanded ? "" : undefined}
-      class="group/composer grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 [&_[data-slot=button]]:size-(--composer-control-size) [&_[data-slot=button]_svg]:size-(--composer-icon-size)"
+      class="group/composer flex min-w-0 flex-col gap-2"
     >
-      <div class={cn("col-start-1 flex items-center gap-1 md:gap-2", expanded ? "row-start-2" : "row-start-1")}>
-        {@render leading?.()}
-      </div>
-      <div class={cn("row-start-1 min-w-0", expanded ? "col-span-3 col-start-1" : "col-start-2")}>
-        {@render input()}
-      </div>
-      <div class={cn("col-start-3", expanded ? "row-start-2" : "row-start-1")}>
+      {@render input(expanded)}
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1 md:gap-2">
+          {@render leading?.()}
+        </div>
         {@render trailing?.()}
       </div>
     </div>
@@ -109,10 +106,14 @@
 
 <style>
   form {
-    --composer-icon-size: 1rem;
     --composer-line-height: 1.5rem;
+    --composer-text-padding: 0.375rem;
+    --composer-expanded-size: calc(
+      3 * var(--composer-line-height) + 2 * var(--composer-text-padding)
+    );
     /* Match the visible icon edge without moving or shrinking its hit area. */
-    --composer-inset: calc((var(--composer-control-size) - var(--composer-icon-size)) / 2);
-    --composer-compact-padding: calc((var(--composer-control-size) - var(--composer-line-height)) / 2);
+    --composer-inset: calc(
+      (var(--icon-button-target) - var(--icon-button-glyph)) / 2
+    );
   }
 </style>

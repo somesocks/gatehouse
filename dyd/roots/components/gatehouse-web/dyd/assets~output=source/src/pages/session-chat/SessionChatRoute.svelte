@@ -637,8 +637,6 @@
             />
           {/if}
           {#snippet actions()}{#if controller.state.showJumpToLatest}<UI.FloatingAction
-                variant="default"
-                size="icon-lg"
                 type="button"
                 aria-label="Jump to bottom"
                 title="Jump to bottom"
@@ -745,10 +743,10 @@
                     onremove={() => controller.removeComposerFile(entry.file)}
                   />{/each}</UI.InputBarAttachments
               >{/if}
-            {#snippet input()}<UI.Textarea
+            {#snippet input(expanded)}<UI.Textarea
                 mode="composer"
                 id="message"
-                rows={1}
+                rows={expanded ? 3 : 1}
                 enterkeyhint="enter"
                 autocomplete="off"
                 placeholder={currentRoute.parentID
@@ -780,9 +778,7 @@
                   openComposerMenuAfterInput(event, event.data)}
               />{/snippet}
             {#snippet leading()}
-              <UI.Button
-                variant="ghost"
-                size="icon"
+              <UI.IconButton
                 type="button"
                 aria-label="Attach files"
                 title="Attach files"
@@ -792,11 +788,9 @@
                   size={20}
                   strokeWidth={2.25}
                   aria-hidden="true"
-                /></UI.Button
+                /></UI.IconButton
               >
-              <UI.Button
-                variant="ghost"
-                size="icon"
+              <UI.IconButton
                 type="button"
                 aria-label="Choose recipient"
                 title="Choose recipient"
@@ -806,11 +800,9 @@
                   size={20}
                   strokeWidth={2.25}
                   aria-hidden="true"
-                /></UI.Button
+                /></UI.IconButton
               >
-              <UI.Button
-                variant="ghost"
-                size="icon"
+              <UI.IconButton
                 type="button"
                 aria-haspopup="dialog"
                 aria-expanded={commandsOpen}
@@ -823,11 +815,10 @@
                 }}
               >
                 <Slash size={20} strokeWidth={2.25} aria-hidden="true" />
-              </UI.Button>
+              </UI.IconButton>
             {/snippet}
-            {#snippet trailing()}<UI.Button
+            {#snippet trailing()}<UI.IconButton
                 variant="default"
-                size="icon"
                 type="submit"
                 aria-label={sendLabel}
                 title={sendLabel}
@@ -843,7 +834,7 @@
                     size={20}
                     strokeWidth={2.25}
                     aria-hidden="true"
-                  />{/if}</UI.Button
+                  />{/if}</UI.IconButton
               >{/snippet}
             {#snippet feedback()}{#if controller.state.messageError}<UI.Text
                   id="message-error"

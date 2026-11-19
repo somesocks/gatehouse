@@ -1004,7 +1004,7 @@ it.each(["first", "answer"])(
   },
 )
 
-it("collapses the composer only when the text field is empty and unfocused", async () => {
+it("keeps the textbox above the toolbar and expands from one row to three for focus or a draft", async () => {
   vi.stubGlobal("fetch", api())
   app = mount(ConversationFixture, {
     target: document.body,
@@ -1015,17 +1015,26 @@ it("collapses the composer only when the text field is empty and unfocused", asy
   await vi.waitFor(() => expect(controls()).not.toBeNull())
   const expanded = () => controls().hasAttribute("data-expanded")
   const input = document.getElementById("message") as HTMLTextAreaElement
+  const attach = controls().querySelector('[aria-label="Attach files"]')!
+  const rows = () => Number(input.rows)
+  expect(
+    input.compareDocumentPosition(attach) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).not.toBe(0)
   expect(expanded()).toBe(false)
+  expect(rows()).toBe(1)
   input.focus()
   await tick()
   expect(expanded()).toBe(true)
+  expect(rows()).toBe(3)
   editField("message", "Draft\nwith two lines")
   input.blur()
   await tick()
   expect(expanded()).toBe(true)
+  expect(rows()).toBe(3)
   editField("message", "")
   await tick()
   expect(expanded()).toBe(false)
+  expect(rows()).toBe(1)
 })
 
 it("sends replies as a group until Send as is cleared, including after reopening the chat", async () => {

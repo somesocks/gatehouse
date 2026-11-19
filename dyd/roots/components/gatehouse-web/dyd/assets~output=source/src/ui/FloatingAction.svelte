@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { Button } from "../lib/vendor/shadcn/button"
+  import IconButton from "./IconButton.svelte"
   import type { ComponentProps } from "svelte"
   let {
     ...rest
-  }: Omit<ComponentProps<typeof Button>, "class" | "style"> = $props()
+  }: Omit<ComponentProps<typeof IconButton>, "variant" | "raised"> = $props()
 </script>
 
-<Button class="absolute right-4 bottom-4 z-10 shadow-sm md:right-6" {...rest} />
+<div class="absolute end-2 bottom-3 z-10 md:end-6">
+  <IconButton variant="default" raised {...rest} />
+</div>

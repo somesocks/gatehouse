@@ -4,6 +4,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+:root {
+  --icon-button-target: 44px;
+  --icon-button-face: 36px;
+  --icon-button-glyph: 1rem;
+}
+
 /* Default palette supplied by the shadcn theme generator. Standard tokens only. */
 :root {
   --radius: 0.625rem;
